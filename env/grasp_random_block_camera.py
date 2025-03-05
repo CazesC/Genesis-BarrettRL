@@ -31,7 +31,7 @@ class GraspRandomBlockCamEnv:
         )
         self.franka = self.scene.add_entity(
             gs.morphs.URDF(
-            file = '/home/corey/Desktop/wam_description/urdf/new_wam.urdf',
+            file = './wam_description/urdf/new_wam.urdf',
             fixed = True,
             )
         )
