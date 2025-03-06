@@ -86,26 +86,28 @@ class GraspRandomBlockEnv:
         return state
 
     def step(self, actions):
-        action_mask_0 = actions == 0 # Open gripper
-        action_mask_1 = actions == 1 # Close gripper
-        action_mask_2 = actions == 2 # Lift gripper
-        action_mask_3 = actions == 3 # Lower gripper
-        action_mask_4 = actions == 4 # Move left
-        action_mask_5 = actions == 5 # Move right
-        action_mask_6 = actions == 6 # Move forward
-        action_mask_7 = actions == 7 # Move backward
+        # Define action masks for movement
+        action_mask_0 = actions == 0  # Open gripper
+        action_mask_1 = actions == 1  # Close gripper
+        action_mask_2 = actions == 2  # Lift gripper
+        action_mask_3 = actions == 3  # Lower gripper
+        action_mask_4 = actions == 4  # Move left
+        action_mask_5 = actions == 5  # Move right
+        action_mask_6 = actions == 6  # Move forward
+        action_mask_7 = actions == 7  # Move backward
 
-        finger_pos = torch.full((self.num_envs, 2), 0.04, dtype=torch.float32, device=self.device)
-        finger_pos[action_mask_1] = 0
-        finger_pos[action_mask_2] = 0
-        
+        # Set gripper positions based on action
+        finger_pos = torch.full((self.num_envs, 3), 0, dtype=torch.float32, device=self.device)  # Default: Closed
+        finger_pos[action_mask_0] = 1.7  # Open gripper if action is 0
+
+        # Process movement actions
         pos = self.pos.clone()
-        pos[action_mask_2, 2] = 0.4
-        pos[action_mask_3, 2] = 0
-        pos[action_mask_4, 0] -= 0.05
-        pos[action_mask_5, 0] += 0.05
-        pos[action_mask_6, 1] -= 0.05
-        pos[action_mask_7, 1] += 0.05
+        pos[action_mask_2, 2] += 0.05  # Lift
+        pos[action_mask_3, 2] -= 0.05  # Lower
+        pos[action_mask_4, 0] -= 0.05  # Move left
+        pos[action_mask_5, 0] += 0.05  # Move right
+        pos[action_mask_6, 1] -= 0.05  # Move forward
+        pos[action_mask_7, 1] += 0.05  # Move backward
 
         self.pos = pos
         self.qpos = self.franka.inverse_kinematics(
@@ -114,12 +116,16 @@ class GraspRandomBlockEnv:
             quat=self.quat,
         )
 
-        self.franka.control_dofs_position(self.qpos[:, :-2], self.motors_dof, self.envs_idx)
-        self.franka.control_dofs_position(finger_pos, self.fingers_dof, self.envs_idx)
+        # Apply joint controls
+        self.franka.control_dofs_position(self.qpos[:, :7], self.motors_dof, self.envs_idx)
+        self.franka.control_dofs_position(finger_pos, self.hand_dofs_idx, self.envs_idx)  # Open/Close Gripper
         self.scene.step()
 
+        # Compute next state, reward, and done flag
         block_position = self.cube.get_pos()
-        gripper_position = (self.franka.get_link("left_finger").get_pos() + self.franka.get_link("right_finger").get_pos()) / 2
+        gripper_position = (self.franka.get_link("bhand_finger1_link_2").get_pos() + 
+                            self.franka.get_link("bhand_finger2_link_2").get_pos() + 
+                            self.franka.get_link("bhand_finger3_link_2").get_pos()) / 3
         states = torch.concat([block_position, gripper_position], dim=1)
 
         rewards = -torch.norm(block_position - gripper_position, dim=1) + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10

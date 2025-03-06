@@ -39,7 +39,7 @@ class GraspRandomBlockCamEnv:
         
         self.cube = self.scene.add_entity(
             gs.morphs.Box(
-                size=(0.04, 0.04, 0.04), # block
+                size=(0.08, 0.08, 0.08), # block
                 pos=(0.65, 0.0, 0.02),
             )
         )
@@ -93,8 +93,8 @@ class GraspRandomBlockCamEnv:
     def reset(self):
         self.build_env()
         ## random cube position
-        cube_pos = np.array([0.65, 0.0, 0.02])
-        x_min, x_max = 0.64, 0.66  
+        cube_pos = np.array([0.8, 0.0, 0.02])
+        x_min, x_max = 0.75, 0.85  
         y_min, y_max = -0.01, 0.01  
         random_x = np.random.uniform(x_min, x_max, size=self.num_envs)
         random_y = np.random.uniform(y_min, y_max, size=self.num_envs)
@@ -123,9 +123,11 @@ class GraspRandomBlockCamEnv:
         action_mask_6 = actions == 6 # Move forward
         action_mask_7 = actions == 7 # Move backward
 
-        finger_pos = torch.full((self.num_envs, 2), 0.04, dtype=torch.float32, device=self.device)
-        finger_pos[action_mask_1] = 0
-        finger_pos[action_mask_2] = 0
+        finger_pos = torch.full((self.num_envs, 3), 0, dtype=torch.float32, device=self.device)
+        finger_pos[action_mask_1] = 1.7
+        finger_pos[action_mask_2] = 1.7
+
+        print(finger_pos)
         
         pos = self.pos.clone()
         pos[action_mask_2, 2] = 0.4
@@ -142,12 +144,14 @@ class GraspRandomBlockCamEnv:
             quat=self.quat,
         )
 
-        self.grasp_pos = np.array([1.7, 1.7, 1.7])
+        #self.grasp_pos = np.tile(np.array([1.7, 1.7, 1.7]), (self.num_envs, 1))
+
+        #print(self.grasp_pos.shape)
         self.hand_dofs_idx = [self.franka.get_joint(name).dof_idx_local for name in self.hand_jnt_names]
         
 
         self.franka.control_dofs_position(self.qpos[:, :7], self.motors_dof, self.envs_idx)
-        self.franka.control_dofs_position(self.grasp_pos, self.hand_dofs_idx, self.envs_idx)
+        self.franka.control_dofs_position(finger_pos, self.hand_dofs_idx, self.envs_idx)
         #self.franka.control_dofs_position(finger_pos, self.fingers_dof, self.envs_idx)
         self.scene.step()
 
