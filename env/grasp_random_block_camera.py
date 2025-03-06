@@ -168,7 +168,22 @@ class GraspRandomBlockCamEnv:
         gripper_position = (self.franka.get_link("bhand_finger1_link_2").get_pos() + self.franka.get_link("bhand_finger2_link_2").get_pos() + self.franka.get_link("bhand_finger3_link_2").get_pos()) / 3
         states = torch.concat([block_position, gripper_position], dim=1)
 
-        rewards = -torch.norm(block_position - gripper_position, dim=1) + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10
+        block_quat = self.cube.get_quat()  # Get block's orientation
+        gripper_quat = self.franka.get_link("bhand_finger1_link_2").get_quat()
+
+        is_grasping = (torch.norm(gripper_position - block_position, dim=1) < 0.05)  # Close enough?
+        finger_closed = (self.finger_pos[:, 0] > 1)  # Fingers mostly closed?
+       
+        rewards = (
+            -torch.norm(block_position - gripper_position, dim=1)  # Get closer to block
+            + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10  # Lift block
+            + torch.sum(block_quat * gripper_quat, dim=1)  # Orientation alignment
+            + (is_grasping & finger_closed) * 5.0  # Grasp stability
+            #+ (block_position[:, 2] > 0.2) * 3.0  # Holding reward
+            #- torch.norm(block_position - target_pos, dim=1)  # Goal reward
+            #- 0.01  # Time penalty
+        )
+
         dones = block_position[:, 2] > 0.35
         return states, rewards, dones
 
