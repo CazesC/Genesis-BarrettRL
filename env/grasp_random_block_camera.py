@@ -71,15 +71,28 @@ class GraspRandomBlockCamEnv:
 
         self.end_effector = self.franka.get_link("wam_link_7")
 
+        self.arm_jnt_names = [
+         "wam_joint_1",
+        "wam_joint_2",
+        "wam_joint_3",
+        "wam_joint_4",
+        "wam_joint_5",
+        "wam_joint_6",
+        ]
+
+        self.arms_dofs_idx = [self.franka.get_joint(name).dof_idx_local for name in self.arm_jnt_names]
+
         self.hand_jnt_names = [
             "bhand_finger1",
             "bhand_finger2",
             "bhand_finger3"
         ]
+
+        self.hand_dofs_idx = [self.franka.get_joint(name).dof_idx_local for name in self.hand_jnt_names]
         self.finger_pos = torch.full((self.num_envs, 3), 0, dtype=torch.float32, device=self.device)
 
         ## here self.pos and self.quat is target for the end effector; not the cube. cube position is set in reset()
-        pos = torch.tensor([0.65, 0.0, 0.135], dtype=torch.float32, device=self.device)
+        pos = torch.tensor([0.9, 0.0, 0.4], dtype=torch.float32, device=self.device)
         self.pos = pos.unsqueeze(0).repeat(self.num_envs, 1)
         quat = torch.tensor([0, 1, 0, 0], dtype=torch.float32, device=self.device)
         self.quat = quat.unsqueeze(0).repeat(self.num_envs, 1)
@@ -88,14 +101,28 @@ class GraspRandomBlockCamEnv:
             pos = self.pos,
             quat = self.quat,
         )
+
+        self.franka.set_dofs_kp(
+        kp = np.array([300 for _ in range(6)]),
+        dofs_idx_local = self.arms_dofs_idx,
+        )
+        self.franka.set_dofs_kv(
+        kv = np.array([400 for _ in range(6)]),
+        dofs_idx_local = self.arms_dofs_idx,
+        )
+        self.franka.set_dofs_force_range(
+        lower = np.array([-30 for _ in range(6)]),
+        upper = np.array([ 30 for _ in range(6)]),
+        dofs_idx_local = self.arms_dofs_idx,
+        )   
         self.franka.control_dofs_position(self.qpos[:, :7], self.motors_dof, self.envs_idx)
 
 
     def reset(self):
         self.build_env()
         ## random cube position
-        cube_pos = np.array([0.8, 0.0, 0.02])
-        x_min, x_max = 0.75, 0.85  
+        cube_pos = np.array([1.0, 0.0, 0.04])
+        x_min, x_max = 0.85, 0.95  
         y_min, y_max = -0.01, 0.01  
         random_x = np.random.uniform(x_min, x_max, size=self.num_envs)
         random_y = np.random.uniform(y_min, y_max, size=self.num_envs)
@@ -112,6 +139,9 @@ class GraspRandomBlockCamEnv:
 
         obs2 = (self.franka.get_link("bhand_finger1_link_2").get_pos() + self.franka.get_link("bhand_finger2_link_2").get_pos() + self.franka.get_link("bhand_finger3_link_2").get_pos()) / 3
         state = torch.concat([obs1, obs2], dim=1)
+
+
+
         return state
 
     def step(self, actions):
@@ -130,25 +160,25 @@ class GraspRandomBlockCamEnv:
         
         self.finger_pos[action_mask_0] = 0
         self.finger_pos[action_mask_1] = 1.7
-        self.finger_pos[action_mask_2] = 1.7
+        #self.finger_pos[action_mask_2] = 1.7
 
         
         pos = self.pos.clone()
-        pos[action_mask_2, 2] = 0.4
-        pos[action_mask_3, 2] = 0
-        pos[action_mask_4, 0] -= 0.05
-        pos[action_mask_5, 0] += 0.05
-        pos[action_mask_6, 1] -= 0.05
-        pos[action_mask_7, 1] += 0.05
+        pos[action_mask_2, 2] += 0.05
+        pos[action_mask_3, 2] -= 0.05
+        # pos[action_mask_4, 0] -= 0.05
+        # pos[action_mask_5, 0] += 0.05
+        # pos[action_mask_6, 1] -= 0.05
+        # pos[action_mask_7, 1] += 0.05
 
         self.pos = pos
+
+        
         self.qpos = self.franka.inverse_kinematics(
             link=self.end_effector,
             pos=pos,
             quat=self.quat,
         )
-
-        self.hand_dofs_idx = [self.franka.get_joint(name).dof_idx_local for name in self.hand_jnt_names]
         
 
         self.franka.control_dofs_position(self.qpos[:, :7], self.motors_dof, self.envs_idx)
@@ -177,12 +207,13 @@ class GraspRandomBlockCamEnv:
         rewards = (
             -torch.norm(block_position - gripper_position, dim=1)  # Get closer to block
             + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10  # Lift block
-            + torch.sum(block_quat * gripper_quat, dim=1)  # Orientation alignment
+            #+ torch.sum(block_quat * gripper_quat, dim=1)  # Orientation alignment
             + (is_grasping & finger_closed) * 5.0  # Grasp stability
             #+ (block_position[:, 2] > 0.2) * 3.0  # Holding reward
             #- torch.norm(block_position - target_pos, dim=1)  # Goal reward
             #- 0.01  # Time penalty
         )
+
 
         dones = block_position[:, 2] > 0.35
         return states, rewards, dones

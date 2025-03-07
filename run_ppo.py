@@ -46,7 +46,7 @@ def train_ppo(args):
         run(env, agent)
 
 def run(env, agent):
-    num_episodes = 1000
+    num_episodes = 5000
     batch_size = args.batch_size if args.batch_size else 64 * args.num_envs
 
     for episode in range(num_episodes):
@@ -55,7 +55,7 @@ def run(env, agent):
         done_array = torch.tensor([False] * env.num_envs).to(args.device)
         states, actions, rewards, dones = [], [], [], []
 
-        for step in range(100):
+        for step in range(300):
             action = agent.select_action(state)
             next_state, reward, done = env.step(action)
 
@@ -74,7 +74,7 @@ def run(env, agent):
         
         if episode % 10 == 0:
             agent.save_checkpoint()
-        print(f"Episode {episode}, Total Reward: {total_reward}")
+        #print(f"Episode {episode}, Total Reward: {total_reward}")
 
 def arg_parser():
     parser = argparse.ArgumentParser()
