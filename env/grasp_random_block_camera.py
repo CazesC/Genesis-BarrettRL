@@ -44,18 +44,18 @@ class GraspRandomBlockCamEnv:
             )
         )
 
-        '''self.cam_0 = self.scene.add_camera(
-        # res=(1280, 960),
-        fov=30,
-        GUI=True,
-        )'''
-
+        # self.cam_0 = self.scene.add_camera(
+        #  res=(1280, 960),
+        # fov=30,
+        # GUI=True,
+        # )
+        self.ik_cache = {}  # Shared IK cache for all robots
         self.num_envs = num_envs
         self.scene.build(n_envs=self.num_envs, env_spacing=(2.0, 2.0))
         
         
         # fixed transformation
-        '''self.cam_0_transform = trans_quat_to_T(np.array([0.03, 0, 0.03]), xyz_to_quat(np.array([180+5, 0, -90])))'''
+       # self.cam_0_transform = trans_quat_to_T(np.array([0.03, 0, 0.03]), xyz_to_quat(np.array([180+5, 0, -90])))
 
         self.envs_idx = np.arange(self.num_envs)
         self.build_env()
@@ -92,7 +92,7 @@ class GraspRandomBlockCamEnv:
         self.finger_pos = torch.full((self.num_envs, 3), 0, dtype=torch.float32, device=self.device)
 
         ## here self.pos and self.quat is target for the end effector; not the cube. cube position is set in reset()
-        pos = torch.tensor([0.9, 0.0, 0.4], dtype=torch.float32, device=self.device)
+        pos = torch.tensor([0.9, 0.0, 0], dtype=torch.float32, device=self.device)
         self.pos = pos.unsqueeze(0).repeat(self.num_envs, 1)
         quat = torch.tensor([0, 1, 0, 0], dtype=torch.float32, device=self.device)
         self.quat = quat.unsqueeze(0).repeat(self.num_envs, 1)
@@ -139,6 +139,7 @@ class GraspRandomBlockCamEnv:
 
         obs2 = (self.franka.get_link("bhand_finger1_link_2").get_pos() + self.franka.get_link("bhand_finger2_link_2").get_pos() + self.franka.get_link("bhand_finger3_link_2").get_pos()) / 3
         state = torch.concat([obs1, obs2], dim=1)
+        
 
 
 
@@ -174,45 +175,60 @@ class GraspRandomBlockCamEnv:
         self.pos = pos
 
         
-        self.qpos = self.franka.inverse_kinematics(
+        pos_key = tuple(pos.cpu().numpy().flatten())  # Convert tensor to a hashable key
+
+        
+        if pos_key in self.ik_cache:
+            self.qpos = self.ik_cache[pos_key]  # Use cached solution
+            print("Using Cache")
+        else:
+            self.qpos = self.franka.inverse_kinematics(
             link=self.end_effector,
             pos=pos,
             quat=self.quat,
-        )
+            respect_joint_limit = True
+            )
+            self.ik_cache[pos_key] = self.qpos  # Store in cache
+            print("Calculate and Store")
+
+        
         
 
         self.franka.control_dofs_position(self.qpos[:, :7], self.motors_dof, self.envs_idx)
         self.franka.control_dofs_position(self.finger_pos, self.hand_dofs_idx, self.envs_idx)
         self.scene.step()
 
-        end_effector = self.franka.get_link("wam_link_7")
+        #end_effector = self.franka.get_link("wam_link_7")
 
-        transform_matrices = trans_quat_to_T(end_effector.get_pos(), end_effector.get_quat()).cpu().numpy()
+        #transform_matrices = trans_quat_to_T(end_effector.get_pos(), end_effector.get_quat()).cpu().numpy()
 
-        '''for i in range(self.num_envs):
-            self.cam_0.set_pose(transform=transform_matrices[i] @ self.cam_0_transform)
-        self.cam_0.render(rgb=True, depth=True)'''
+        
+        #self.cam_0.set_pose(transform=transform_matrices @ self.cam_0_transform)
+        
 
         block_position = self.cube.get_pos()
 
         gripper_position = (self.franka.get_link("bhand_finger1_link_2").get_pos() + self.franka.get_link("bhand_finger2_link_2").get_pos() + self.franka.get_link("bhand_finger3_link_2").get_pos()) / 3
         states = torch.concat([block_position, gripper_position], dim=1)
 
-        block_quat = self.cube.get_quat()  # Get block's orientation
-        gripper_quat = self.franka.get_link("bhand_finger1_link_2").get_quat()
+        #block_quat = self.cube.get_quat()  # Get block's orientation
+        #gripper_quat = self.franka.get_link("bhand_finger1_link_2").get_quat()
 
         is_grasping = (torch.norm(gripper_position - block_position, dim=1) < 0.05)  # Close enough?
         finger_closed = (self.finger_pos[:, 0] > 1)  # Fingers mostly closed?
        
+        above_block_reward = (gripper_position[:, 2] - block_position[:, 2] - 0.2).abs().clamp(max=0.05) * 10
+        ground_penalty = (gripper_position[:, 2] < 0.15) * -5.0
+
         rewards = (
             -torch.norm(block_position - gripper_position, dim=1)  # Get closer to block
             + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10  # Lift block
-            #+ torch.sum(block_quat * gripper_quat, dim=1)  # Orientation alignment
             + (is_grasping & finger_closed) * 5.0  # Grasp stability
-            #+ (block_position[:, 2] > 0.2) * 3.0  # Holding reward
-            #- torch.norm(block_position - target_pos, dim=1)  # Goal reward
-            #- 0.01  # Time penalty
+            + above_block_reward  # Reward for being 20cm above block
+            + ground_penalty  # Penalty for touching the ground
         )
+
+    
 
 
         dones = block_position[:, 2] > 0.35

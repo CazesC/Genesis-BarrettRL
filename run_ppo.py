@@ -46,7 +46,7 @@ def train_ppo(args):
         run(env, agent)
 
 def run(env, agent):
-    num_episodes = 5000
+    num_episodes = 500
     batch_size = args.batch_size if args.batch_size else 64 * args.num_envs
 
     for episode in range(num_episodes):
@@ -74,7 +74,7 @@ def run(env, agent):
         
         if episode % 10 == 0:
             agent.save_checkpoint()
-        #print(f"Episode {episode}, Total Reward: {total_reward}")
+        print(f"Episode {episode}, Total Reward: {total_reward}")
 
 def arg_parser():
     parser = argparse.ArgumentParser()
