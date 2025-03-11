@@ -49,6 +49,7 @@ def train_ppo(args):
 def run(env, agent):
     num_episodes = 500
     batch_size = args.batch_size if args.batch_size else 64 * args.num_envs
+    manual_action_value = 2.0 
 
     for episode in range(num_episodes):
         state = env.reset()
@@ -57,7 +58,12 @@ def run(env, agent):
         states, actions, rewards, dones = [], [], [], []
 
         for step in range(600):
-            action = agent.select_action(state)
+            
+            if (step % 10 != 0):
+                action = agent.select_action(state)
+            else:
+                action = torch.tensor([manual_action_value], device=args.device)
+
             next_state, reward, done = env.step(action)
 
             states.append(state)

@@ -228,7 +228,7 @@ class GraspRandomBlockCamEnv:
         for i, is_valid in enumerate(valid_mask):
             if is_valid:
                 collision_penalty = -3 
-                print("COLLISION DETECTED: Floor")
+
 
 
         contacts = self.franka.get_contacts(self.cube)
@@ -240,7 +240,7 @@ class GraspRandomBlockCamEnv:
         for i, is_valid in enumerate(valid_mask):
             if is_valid:
                 grasp_reward = 5 
-                print("COLLISION DETECTED: CubeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+                
 
 
 

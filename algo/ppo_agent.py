@@ -37,12 +37,14 @@ class PPOAgent:
         probs = nn.functional.softmax(logits, dim=-1)
         dist = Categorical(probs)
         action = dist.sample()
+        
         return action
 
     def train(self, states, actions, rewards, dones):
         # Convert lists to tensors
         states_tensor = torch.stack(states).to(self.device)
         actions_tensor = torch.stack(actions).to(self.device)
+
         
         # Calculate discounted rewards
         discounted_rewards = []
