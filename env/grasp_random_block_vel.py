@@ -4,10 +4,10 @@ import torch
 from .util import euler_to_quaternion
 from genesis.utils.geom import trans_quat_to_T, xyz_to_quat, quat_to_T
 
-class GraspRandomBlockCamEnv:
+class GraspRandomBlockVelEnv:
     def __init__(self, vis, device, num_envs=1):
         self.device = device
-        self.action_space = 4  
+        self.action_space = 8  
         self.state_dim = 6  
 
         self.scene = gs.Scene(
@@ -16,7 +16,7 @@ class GraspRandomBlockCamEnv:
                 camera_lookat=(0.0, 0.0, 0.5),
                 camera_fov=30,
                 res=(960, 640),
-                max_FPS=240,
+                max_FPS=60,
             ),
             sim_options=gs.options.SimOptions(
                 dt=0.01,
@@ -92,7 +92,7 @@ class GraspRandomBlockCamEnv:
         self.finger_pos = torch.full((self.num_envs, 3), 0, dtype=torch.float32, device=self.device)
 
         ## here self.pos and self.quat is target for the end effector; not the cube. cube position is set in reset()
-        pos = torch.tensor([0.9, 0.0, 0.4], dtype=torch.float32, device=self.device)
+        pos = torch.tensor([0.9, 0.0, 0], dtype=torch.float32, device=self.device)
         self.pos = pos.unsqueeze(0).repeat(self.num_envs, 1)
         quat = torch.tensor([0, 1, 0, 0], dtype=torch.float32, device=self.device)
         self.quat = quat.unsqueeze(0).repeat(self.num_envs, 1)
@@ -122,15 +122,15 @@ class GraspRandomBlockCamEnv:
         self.build_env()
         ## random cube position
         cube_pos = np.array([1.0, 0.0, 0.04])
-        x_min, x_max = 0.9, 0.9  
-        y_min, y_max = -0.0, 0.0
+        x_min, x_max = 0.85, 0.95  
+        y_min, y_max = -0.01, 0.01  
         random_x = np.random.uniform(x_min, x_max, size=self.num_envs)
         random_y = np.random.uniform(y_min, y_max, size=self.num_envs)
         cube_pos = np.column_stack((random_x, random_y, np.full(self.num_envs, cube_pos[2])))
         ## random cube orientation
         fixed_roll = 0
         fixed_pitch = 0
-        random_yaws = np.random.uniform(0, 0 * np.pi, size=self.num_envs) 
+        random_yaws = np.random.uniform(0, 2 * np.pi, size=self.num_envs) 
         quaternions = np.array([euler_to_quaternion(fixed_roll, fixed_pitch, yaw) for yaw in random_yaws])
         self.cube.set_pos(cube_pos, envs_idx=self.envs_idx)   
         self.cube.set_quat(quaternions, envs_idx=self.envs_idx) 
@@ -165,8 +165,8 @@ class GraspRandomBlockCamEnv:
 
         
         pos = self.pos.clone()
-        pos[action_mask_2, 2] += 0.01
-        pos[action_mask_3, 2] -= 0.01
+        pos[action_mask_2, 2] += 0.05
+        pos[action_mask_3, 2] -= 0.05
         # pos[action_mask_4, 0] -= 0.05
         # pos[action_mask_5, 0] += 0.05
         # pos[action_mask_6, 1] -= 0.05
@@ -174,14 +174,13 @@ class GraspRandomBlockCamEnv:
 
         self.pos = pos
 
-
         
         pos_key = tuple(pos.cpu().numpy().flatten())  # Convert tensor to a hashable key
 
         
         if pos_key in self.ik_cache:
             self.qpos = self.ik_cache[pos_key]  # Use cached solution
-            #print("Using Cache")
+            print("Using Cache")
         else:
             self.qpos = self.franka.inverse_kinematics(
             link=self.end_effector,
@@ -190,7 +189,7 @@ class GraspRandomBlockCamEnv:
             respect_joint_limit = True
             )
             self.ik_cache[pos_key] = self.qpos  # Store in cache
-            #print("Calculate and Store")
+            print("Calculate and Store")
 
         
         
@@ -217,48 +216,17 @@ class GraspRandomBlockCamEnv:
 
         is_grasping = (torch.norm(gripper_position - block_position, dim=1) < 0.05)  # Close enough?
         finger_closed = (self.finger_pos[:, 0] > 1)  # Fingers mostly closed?
-
-
-        contacts = self.franka.get_contacts(self.plane)
-
-        # Extract valid mask
-        valid_mask = contacts['valid_mask'][0]  # Assuming single environment
-        collision_penalty = 0
-        # Loop through contacts and print message for valid ones
-        for i, is_valid in enumerate(valid_mask):
-            if is_valid:
-                collision_penalty = -3 
-                print("COLLISION DETECTED: Floor")
-
-
-        contacts = self.franka.get_contacts(self.cube)
-
-        # Extract valid mask
-        valid_mask = contacts['valid_mask'][0]  # Assuming single environment
-        grasp_reward = 0
-        # Loop through contacts and print message for valid ones
-        for i, is_valid in enumerate(valid_mask):
-            if is_valid:
-                grasp_reward = 5 
-                print("COLLISION DETECTED: CubeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-
-
-
-        height_penalty = (gripper_position[:, 2] > 0.7) * -3.0
-
-
-        
+       
+        above_block_reward = (gripper_position[:, 2] - block_position[:, 2] - 0.2).abs().clamp(max=0.05) * 10
+        ground_penalty = (gripper_position[:, 2] < 0.15) * -5.0
 
         rewards = (
-            -torch.norm(block_position - gripper_position, dim=1)*2  # Get closer to block
+            -torch.norm(block_position - gripper_position, dim=1)  # Get closer to block
             + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10  # Lift block
             + (is_grasping & finger_closed) * 5.0  # Grasp stability
-            + collision_penalty  # Penalty for touching the ground
-            + height_penalty
-            +grasp_reward
+            + above_block_reward  # Reward for being 20cm above block
+            #+ ground_penalty  # Penalty for touching the ground
         )
-        print("Reward:")
-        print(rewards)
 
     
 
@@ -269,4 +237,4 @@ class GraspRandomBlockCamEnv:
 
 if __name__ == "__main__":
     gs.init(backend=gs.gpu, precision="32")
-    env = GraspRandomBlockCamEnv(vis=True)
+    env = GraspRandomBlockVelEnv(vis=True)

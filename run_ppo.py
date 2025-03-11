@@ -13,7 +13,8 @@ task_to_class = {
     'GraspRandomBlock': GraspRandomBlockEnv,
     'GraspRandomRod': GraspRandomRodEnv,
     'ShadowHandBase': ShadowHandBaseEnv,
-    'GraspRandomBlockCamera' : GraspRandomBlockCamEnv
+    'GraspRandomBlockCamera' : GraspRandomBlockCamEnv,
+    'GraspRandomBlockVel' : GraspRandomBlockVelEnv
 }
 
 def create_environment(task_name):
@@ -55,7 +56,7 @@ def run(env, agent):
         done_array = torch.tensor([False] * env.num_envs).to(args.device)
         states, actions, rewards, dones = [], [], [], []
 
-        for step in range(300):
+        for step in range(600):
             action = agent.select_action(state)
             next_state, reward, done = env.step(action)
 

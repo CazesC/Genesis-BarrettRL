@@ -5,3 +5,4 @@ from .grasp_random_rod import GraspRandomRodEnv
 from .shadow_hand import ShadowHandBaseEnv
 from .water_franka import WaterFrankaEnv
 from .grasp_random_block_camera import GraspRandomBlockCamEnv
+from .grasp_random_block_vel import GraspRandomBlockVelEnv
