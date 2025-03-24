@@ -10,6 +10,8 @@ class GraspRandomBlockCamEnv:
         self.action_space = 4  
         self.state_dim = 6  
 
+        np.set_printoptions(threshold=np.inf)
+
         self.scene = gs.Scene(
             viewer_options=gs.options.ViewerOptions(
                 camera_pos=(3, -1, 1.5),
@@ -24,7 +26,9 @@ class GraspRandomBlockCamEnv:
             rigid_options=gs.options.RigidOptions(
                 box_box_detection=True,
             ),
+            vis_options=gs.options.VisOptions(segmentation_level='entity'),
             show_viewer=vis,
+        
         )
         self.plane = self.scene.add_entity(
             gs.morphs.Plane(),
@@ -44,18 +48,18 @@ class GraspRandomBlockCamEnv:
             )
         )
 
-        # self.cam_0 = self.scene.add_camera(
-        #  res=(1280, 960),
-        # fov=30,
-        # GUI=True,
-        # )
+        self.cam_0 = self.scene.add_camera(
+         res=(1280, 960),
+        fov=30,
+        GUI=True,
+        )
         self.ik_cache = {}  # Shared IK cache for all robots
         self.num_envs = num_envs
         self.scene.build(n_envs=self.num_envs, env_spacing=(2.0, 2.0))
         
         
-        # fixed transformation
-       # self.cam_0_transform = trans_quat_to_T(np.array([0.03, 0, 0.03]), xyz_to_quat(np.array([180+5, 0, -90])))
+        #fixed transformation
+        self.cam_0_transform = trans_quat_to_T(np.array([0.03, 0, 0.03]), xyz_to_quat(np.array([180+5, 0, -90])))
 
         self.envs_idx = np.arange(self.num_envs)
         self.build_env()
@@ -63,7 +67,7 @@ class GraspRandomBlockCamEnv:
     def build_env(self):
         self.motors_dof = torch.arange(7).to(self.device)
         self.fingers_dof = torch.arange(7, 9).to(self.device)
-        franka_pos = torch.tensor([0, 1.5, 0, 0, 0, 0, 0, 0, 0, 0,0,0,0,0,0]).to(self.device)
+        franka_pos = torch.tensor([-0.3, 0.69, 0, 1.34, 0, 1.02, -0.3, 0, 0, 0,0,0,0,0,0]).to(self.device)
         #franka_pos = torch.tensor([0, 0, 0, 0, 0, 0, 0, 0.04, 0.04]).to(self.device)
         franka_pos = franka_pos.unsqueeze(0).repeat(self.num_envs, 1) 
         self.franka.set_qpos(franka_pos, envs_idx=self.envs_idx)
@@ -199,13 +203,22 @@ class GraspRandomBlockCamEnv:
         self.franka.control_dofs_position(self.finger_pos, self.hand_dofs_idx, self.envs_idx)
         self.scene.step()
 
-        #end_effector = self.franka.get_link("wam_link_7")
+        end_effector = self.franka.get_link("wam_link_7")
 
-        #transform_matrices = trans_quat_to_T(end_effector.get_pos(), end_effector.get_quat()).cpu().numpy()
+        transform_matrices = trans_quat_to_T(end_effector.get_pos(), end_effector.get_quat()).cpu().numpy()
 
         
-        #self.cam_0.set_pose(transform=transform_matrices @ self.cam_0_transform)
+        self.cam_0.set_pose(transform=transform_matrices[0] @ self.cam_0_transform)
+
+        rgb_image, depth_image, segmentation_mask, _ = self.cam_0.render(segmentation=True)
+
         
+        #print (segmentation_mask)
+        segmented_cube_mask = (segmentation_mask == 2) 
+
+        print("Segmentation Mask:")
+        print(segmented_cube_mask)
+              
 
         block_position = self.cube.get_pos()
 
