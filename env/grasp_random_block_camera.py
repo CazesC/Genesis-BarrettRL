@@ -216,22 +216,18 @@ class GraspRandomBlockCamEnv:
         #print (segmentation_mask)
         segmented_cube_mask = (segmentation_mask == 2) 
 
-        cube_area, cube_center = calculate_cube_properties(segmented_cube_mask)
-        print("Cube Area:")
-        print(cube_area)
-        print("Cube Center:")
-        print(cube_center)
+        cube_props= calculate_cube_properties(segmented_cube_mask)
 
-        #print("Segmentation Mask:")
-        #print(segmented_cube_mask.shape)
 
-        cube_area = cube_area.unsqueeze(0)
+
+
               
 
         block_position = self.cube.get_pos()
 
         gripper_position = (self.franka.get_link("bhand_finger1_link_2").get_pos() + self.franka.get_link("bhand_finger2_link_2").get_pos() + self.franka.get_link("bhand_finger3_link_2").get_pos()) / 3
-        states = torch.concat([block_position, gripper_position], dim=1)
+        states = torch.concat([cube_props, gripper_position], dim=1)
+        print (states)
 
         #block_quat = self.cube.get_quat()  # Get block's orientation
         #gripper_quat = self.franka.get_link("bhand_finger1_link_2").get_quat()
@@ -288,6 +284,7 @@ class GraspRandomBlockCamEnv:
         return states, rewards, dones
     
 
+
 def calculate_cube_properties(segmented_cube_mask, device="cuda"):
     # Compute the area as the sum of True values
     cube_area = np.sum(segmented_cube_mask)
@@ -296,20 +293,16 @@ def calculate_cube_properties(segmented_cube_mask, device="cuda"):
     cube_pixels = np.argwhere(segmented_cube_mask)
 
     if cube_pixels.size == 0:
-        # If no cube is detected, return area 0 and center (0,0)
-        return (
-            torch.tensor(0, dtype=torch.float32, device=device),
-            torch.tensor([0, 0], dtype=torch.float32, device=device)
-        )
+        # If no cube is detected, return a zero tensor of shape (1,3)
+        return torch.tensor([[0, 0, 0]], dtype=torch.float32, device=device)
 
     # Compute the centroid (mean of x and y coordinates)
     center_y, center_x = cube_pixels.mean(axis=0)
 
-    # Convert results to PyTorch tensors and move to CUDA
-    cube_area_tensor = torch.tensor(cube_area, dtype=torch.float32, device=device)
-    cube_center_tensor = torch.tensor([center_x, center_y], dtype=torch.float32, device=device)
+    # Create a single tensor of shape (1,3)
+    cube_properties_tensor = torch.tensor([[center_x, center_y, cube_area]], dtype=torch.float32, device=device)
 
-    return cube_area_tensor, cube_center_tensor
+    return cube_properties_tensor
 
 if __name__ == "__main__":
     gs.init(backend=gs.gpu, precision="32")
