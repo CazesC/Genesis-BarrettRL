@@ -59,7 +59,7 @@ class GraspRandomBlockCamEnv:
         
         
         #fixed transformation
-        self.cam_0_transform = trans_quat_to_T(np.array([0.03, 0, 0.03]), xyz_to_quat(np.array([180+5, 0, -90])))
+        self.cam_0_transform = trans_quat_to_T(np.array([0, -0.08, 0.095]), xyz_to_quat(np.array([175, 0, 0])))
 
         self.envs_idx = np.arange(self.num_envs)
         self.build_env()
@@ -216,8 +216,16 @@ class GraspRandomBlockCamEnv:
         #print (segmentation_mask)
         segmented_cube_mask = (segmentation_mask == 2) 
 
-        print("Segmentation Mask:")
-        print(segmented_cube_mask)
+        cube_area, cube_center = calculate_cube_properties(segmented_cube_mask)
+        print("Cube Area:")
+        print(cube_area)
+        print("Cube Center:")
+        print(cube_center)
+
+        #print("Segmentation Mask:")
+        #print(segmented_cube_mask.shape)
+
+        cube_area = cube_area.unsqueeze(0)
               
 
         block_position = self.cube.get_pos()
@@ -278,7 +286,30 @@ class GraspRandomBlockCamEnv:
 
         dones = block_position[:, 2] > 0.35
         return states, rewards, dones
+    
 
+def calculate_cube_properties(segmented_cube_mask, device="cuda"):
+    # Compute the area as the sum of True values
+    cube_area = np.sum(segmented_cube_mask)
+
+    # Get the coordinates of all True values (cube pixels)
+    cube_pixels = np.argwhere(segmented_cube_mask)
+
+    if cube_pixels.size == 0:
+        # If no cube is detected, return area 0 and center (0,0)
+        return (
+            torch.tensor(0, dtype=torch.float32, device=device),
+            torch.tensor([0, 0], dtype=torch.float32, device=device)
+        )
+
+    # Compute the centroid (mean of x and y coordinates)
+    center_y, center_x = cube_pixels.mean(axis=0)
+
+    # Convert results to PyTorch tensors and move to CUDA
+    cube_area_tensor = torch.tensor(cube_area, dtype=torch.float32, device=device)
+    cube_center_tensor = torch.tensor([center_x, center_y], dtype=torch.float32, device=device)
+
+    return cube_area_tensor, cube_center_tensor
 
 if __name__ == "__main__":
     gs.init(backend=gs.gpu, precision="32")
