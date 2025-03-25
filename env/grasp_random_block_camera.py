@@ -220,7 +220,7 @@ class GraspRandomBlockCamEnv:
         cube_props, cube_area, _, _= calculate_cube_properties(segmented_cube_mask)
 
 
-        cube_percent = (cube_area/1228800)*100)
+        cube_percent = (cube_area/1228800)*100
 
               
 
