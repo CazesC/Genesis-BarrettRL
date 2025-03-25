@@ -214,12 +214,13 @@ class GraspRandomBlockCamEnv:
 
         
         #print (segmentation_mask)
-        segmented_cube_mask = (segmentation_mask == 2) 
+        segmented_cube_mask = (segmentation_mask == 2)
+        
 
-        cube_props= calculate_cube_properties(segmented_cube_mask)
+        cube_props, cube_area, _, _= calculate_cube_properties(segmented_cube_mask)
 
 
-
+        cube_percent = (cube_area/1228800)*100)
 
               
 
@@ -227,7 +228,6 @@ class GraspRandomBlockCamEnv:
 
         gripper_position = (self.franka.get_link("bhand_finger1_link_2").get_pos() + self.franka.get_link("bhand_finger2_link_2").get_pos() + self.franka.get_link("bhand_finger3_link_2").get_pos()) / 3
         states = torch.concat([cube_props, gripper_position], dim=1)
-        print (states)
 
         #block_quat = self.cube.get_quat()  # Get block's orientation
         #gripper_quat = self.franka.get_link("bhand_finger1_link_2").get_quat()
@@ -272,7 +272,8 @@ class GraspRandomBlockCamEnv:
             + (is_grasping & finger_closed) * 5.0  # Grasp stability
             + collision_penalty  # Penalty for touching the ground
             + height_penalty
-            +grasp_reward
+            + grasp_reward
+            + cube_percent/10
         )
         print("Reward:")
         print(rewards)
@@ -302,7 +303,7 @@ def calculate_cube_properties(segmented_cube_mask, device="cuda"):
     # Create a single tensor of shape (1,3)
     cube_properties_tensor = torch.tensor([[center_x, center_y, cube_area]], dtype=torch.float32, device=device)
 
-    return cube_properties_tensor
+    return cube_properties_tensor, cube_area, center_x, center_y
 
 if __name__ == "__main__":
     gs.init(backend=gs.gpu, precision="32")
