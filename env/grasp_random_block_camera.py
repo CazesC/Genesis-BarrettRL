@@ -295,7 +295,7 @@ def calculate_cube_properties(segmented_cube_mask, device="cuda"):
 
     if cube_pixels.size == 0:
         # If no cube is detected, return a zero tensor of shape (1,3)
-        return torch.tensor([[0, 0, 0]], dtype=torch.float32, device=device)
+        return torch.tensor([[0, 0, 0]], dtype=torch.float32, device=device), 0, 0, 0
 
     # Compute the centroid (mean of x and y coordinates)
     center_y, center_x = cube_pixels.mean(axis=0)
