@@ -348,7 +348,7 @@
     <child link="wam_link_7"/>
     <origin rpy="1.57079632679 0 0" xyz="0.0 0.0 0.0"/>
     <axis xyz="0 0 1"/>
-    <limit effort="30" lower="-3.0" upper="3.0" velocity="2.0"/>
+    <limit effort="30" lower="-1.5" upper="1.5" velocity="2.0"/>
     <!-- <limit effort="30" lower="-1.5" upper="1.5" velocity="2.0"/> -->
     <!-- <safety_controller k_velocity="0.5"/> -->
     <dynamics damping="100"/>
@@ -412,9 +412,12 @@
           </collision>
   </link>
   <joint name="bhand_spread" type="fixed">
+  <!-- <joint name="bhand_spread" type="revolute"> -->
     <parent link="bhand_base_link"/>
     <child link="bhand_finger1_link_1"/>
     <origin rpy="0 0 0" xyz="0 -0.025 0.133"/>
+    <!-- <axis xyz="0 0 -1"/> -->
+    <!-- <limit effort="30" lower="0.0" upper="3.14159265359" velocity="2.0"/> -->
   </joint>
   <link name="bhand_finger2_link_1">
     <visual>
@@ -436,9 +439,13 @@
     </collision>
   </link>
   <joint name="bhand_spread_finger2" type="fixed">
+  <!-- <joint name="bhand_spread_finger2" type="revolute"> -->
     <parent link="bhand_base_link"/>
     <child link="bhand_finger2_link_1"/>
     <origin rpy="0 0 0" xyz="0 0.025 0.133"/>
+    <!-- <axis xyz="0 0 1"/> -->
+    <!-- <limit effort="30" lower="0.0" upper="3.14159265359" velocity="2.0"/> -->
+    <!-- <mimic joint="bhand_spread" multiplier="1.0" offset="0"/> -->
   </joint>
   <link name="bhand_finger3_link_1">
     <visual>
