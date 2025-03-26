@@ -35,7 +35,7 @@ class GraspRandomBlockCamEnv:
         )
         self.franka = self.scene.add_entity(
             gs.morphs.URDF(
-            file = './wam_description/urdf/new_wam.urdf',
+            file = './wam_description/urdf/wam_finger.urdf',
             fixed = True,
             )
         )
@@ -43,10 +43,12 @@ class GraspRandomBlockCamEnv:
         
         self.cube = self.scene.add_entity(
             gs.morphs.Box(
-                size=(0.08, 0.08, 0.08), # block
+                size=(0.06, 0.06, 0.06), # block
                 pos=(0.65, 0.0, 0.02),
+                collision=True,
             )
         )
+        self.cube.set_friction(3.0)
 
         self.cam_0 = self.scene.add_camera(
          res=(1280, 960),
@@ -67,7 +69,8 @@ class GraspRandomBlockCamEnv:
     def build_env(self):
         self.motors_dof = torch.arange(7).to(self.device)
         self.fingers_dof = torch.arange(7, 9).to(self.device)
-        franka_pos = torch.tensor([-0.3, 0.69, 0, 1.34, 0, 1.02, -0.3, 0, 0, 0,0,0,0,0,0]).to(self.device)
+        # 13 DOF after fixing 2 bhand spread joints
+        franka_pos = torch.tensor([-0.3, 0.69, 0, 1.34, 0, 1.02, -0.3, 0, 0, 0,0,0,0]).to(self.device)
         #franka_pos = torch.tensor([0, 0, 0, 0, 0, 0, 0, 0.04, 0.04]).to(self.device)
         franka_pos = franka_pos.unsqueeze(0).repeat(self.num_envs, 1) 
         self.franka.set_qpos(franka_pos, envs_idx=self.envs_idx)
@@ -76,7 +79,7 @@ class GraspRandomBlockCamEnv:
         self.end_effector = self.franka.get_link("wam_link_7")
 
         self.arm_jnt_names = [
-         "wam_joint_1",
+        "wam_joint_1",
         "wam_joint_2",
         "wam_joint_3",
         "wam_joint_4",
@@ -86,6 +89,20 @@ class GraspRandomBlockCamEnv:
 
         self.arms_dofs_idx = [self.franka.get_joint(name).dof_idx_local for name in self.arm_jnt_names]
 
+        self.franka.set_dofs_kp(
+            kp = np.array([300 for _ in range(6)]),
+            dofs_idx_local = self.arms_dofs_idx,
+        )
+        self.franka.set_dofs_kv(
+            kv = np.array([400 for _ in range(6)]),
+            dofs_idx_local = self.arms_dofs_idx,
+        )
+        self.franka.set_dofs_force_range(
+            lower = np.array([-30 for _ in range(6)]),
+            upper = np.array([ 30 for _ in range(6)]),
+            dofs_idx_local = self.arms_dofs_idx,
+        )   
+
         self.hand_jnt_names = [
             "bhand_finger1",
             "bhand_finger2",
@@ -94,6 +111,27 @@ class GraspRandomBlockCamEnv:
 
         self.hand_dofs_idx = [self.franka.get_joint(name).dof_idx_local for name in self.hand_jnt_names]
         self.finger_pos = torch.full((self.num_envs, 3), 0, dtype=torch.float32, device=self.device)
+
+        self.franka.set_dofs_kp(
+            kp=np.array([300 for _ in self.hand_jnt_names]),
+            dofs_idx_local=self.hand_dofs_idx,
+        )
+        self.franka.set_dofs_kv(
+            kv=np.array([450 for _ in self.hand_jnt_names]),
+            dofs_idx_local=self.hand_dofs_idx,
+        )
+        self.franka.set_dofs_force_range(
+            lower=np.array([-5 for _ in self.hand_jnt_names]),
+            upper=np.array([15 for _ in self.hand_jnt_names]),
+            dofs_idx_local=self.hand_dofs_idx,
+        )
+
+        # Set friction on finger links
+        for link in self.franka.links:
+            if "bhand_finger" in link.name:
+                link.set_friction(3.0)
+                
+        self.tcp_offset = np.array([0.0, 0.0, 0.06]) # Offset from link_7 to TCP
 
         ## here self.pos and self.quat is target for the end effector; not the cube. cube position is set in reset()
         pos = torch.tensor([0.9, 0.0, 0.4], dtype=torch.float32, device=self.device)
@@ -106,19 +144,6 @@ class GraspRandomBlockCamEnv:
             quat = self.quat,
         )
 
-        self.franka.set_dofs_kp(
-        kp = np.array([300 for _ in range(6)]),
-        dofs_idx_local = self.arms_dofs_idx,
-        )
-        self.franka.set_dofs_kv(
-        kv = np.array([400 for _ in range(6)]),
-        dofs_idx_local = self.arms_dofs_idx,
-        )
-        self.franka.set_dofs_force_range(
-        lower = np.array([-30 for _ in range(6)]),
-        upper = np.array([ 30 for _ in range(6)]),
-        dofs_idx_local = self.arms_dofs_idx,
-        )   
         self.franka.control_dofs_position(self.qpos[:, :7], self.motors_dof, self.envs_idx)
 
 
@@ -164,7 +189,7 @@ class GraspRandomBlockCamEnv:
 
         
         self.finger_pos[action_mask_0] = 0
-        self.finger_pos[action_mask_1] = 1.7
+        self.finger_pos[action_mask_1] = 1.62
         #self.finger_pos[action_mask_2] = 1.7
 
         
