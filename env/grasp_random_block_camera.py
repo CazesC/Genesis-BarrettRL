@@ -3,11 +3,12 @@ import genesis as gs
 import torch
 from .util import euler_to_quaternion
 from genesis.utils.geom import trans_quat_to_T, xyz_to_quat, quat_to_T
+import cv2
 
 class GraspRandomBlockCamEnv:
     def __init__(self, vis, device, num_envs=1):
         self.device = device
-        self.action_space = 4  
+        self.action_space = 5  
         self.state_dim = 6  
 
         np.set_printoptions(threshold=np.inf)
@@ -70,7 +71,9 @@ class GraspRandomBlockCamEnv:
         self.motors_dof = torch.arange(7).to(self.device)
         self.fingers_dof = torch.arange(7, 9).to(self.device)
         # 13 DOF after fixing 2 bhand spread joints
-        franka_pos = torch.tensor([-0.3, 0.69, 0, 1.34, 0, 1.02, -0.3, 0, 0, 0,0,0,0]).to(self.device)
+        franka_pos = torch.tensor([-2.0374e-02,  1.3912e+00, -4.5302e-01,  1.0389e+00, -2.5591e+00,
+        -9.1209e-01, -5.2248e-01,  2.3408e-02,  2.3388e-02,  2.3324e-02,
+         8.8804e-06,  8.8778e-06,  1.7770e-05]).to(self.device)
         #franka_pos = torch.tensor([0, 0, 0, 0, 0, 0, 0, 0.04, 0.04]).to(self.device)
         franka_pos = franka_pos.unsqueeze(0).repeat(self.num_envs, 1) 
         self.franka.set_qpos(franka_pos, envs_idx=self.envs_idx)
@@ -150,8 +153,8 @@ class GraspRandomBlockCamEnv:
     def reset(self):
         self.build_env()
         ## random cube position
-        cube_pos = np.array([1.0, 0.0, 0.04])
-        x_min, x_max = 0.9, 0.9  
+        cube_pos = np.array([1.0, 0.0, 0.05])
+        x_min, x_max = 0.95, 0.95  
         y_min, y_max = -0.0, 0.0
         random_x = np.random.uniform(x_min, x_max, size=self.num_envs)
         random_y = np.random.uniform(y_min, y_max, size=self.num_envs)
@@ -175,16 +178,15 @@ class GraspRandomBlockCamEnv:
         return state
 
     def step(self, actions):
-
-        
         action_mask_0 = actions == 0 # Open gripper
         action_mask_1 = actions == 1 # Close gripper
         action_mask_2 = actions == 2 # Lift gripper
         action_mask_3 = actions == 3 # Lower gripper
-        action_mask_4 = actions == 4 # Move left
-        action_mask_5 = actions == 5 # Move right
-        action_mask_6 = actions == 6 # Move forward
-        action_mask_7 = actions == 7 # Move backward
+        action_mask_4 = actions == 4 # Do Nothing
+        # action_mask_4 = actions == 4 # Move left
+        # action_mask_5 = actions == 5 # Move right
+        # action_mask_6 = actions == 6 # Move forward
+        # action_mask_7 = actions == 7 # Move backward
 
 
         
@@ -236,91 +238,131 @@ class GraspRandomBlockCamEnv:
         self.cam_0.set_pose(transform=transform_matrices[0] @ self.cam_0_transform)
 
         rgb_image, depth_image, segmentation_mask, _ = self.cam_0.render(segmentation=True)
-
-        
-        #print (segmentation_mask)
         segmented_cube_mask = (segmentation_mask == 2)
         
-
-        cube_props, cube_area, _, _= calculate_cube_properties(segmented_cube_mask)
-
-
-        cube_percent = (cube_area/1228800)*100
-
-              
-
-        block_position = self.cube.get_pos()
-
-        gripper_position = (self.franka.get_link("bhand_finger1_link_2").get_pos() + self.franka.get_link("bhand_finger2_link_2").get_pos() + self.franka.get_link("bhand_finger3_link_2").get_pos()) / 3
-        states = torch.concat([cube_props, gripper_position], dim=1)
-
-        #block_quat = self.cube.get_quat()  # Get block's orientation
-        #gripper_quat = self.franka.get_link("bhand_finger1_link_2").get_quat()
-
-        is_grasping = (torch.norm(gripper_position - block_position, dim=1) < 0.05)  # Close enough?
-        finger_closed = (self.finger_pos[:, 0] > 1)  # Fingers mostly closed?
-
-
-        contacts = self.franka.get_contacts(self.plane)
-
-        # Extract valid mask
-        valid_mask = contacts['valid_mask'][0]  # Assuming single environment
-        collision_penalty = 0
-        # Loop through contacts and print message for valid ones
-        for i, is_valid in enumerate(valid_mask):
-            if is_valid:
-                collision_penalty = -3 
-
-
-
-        contacts = self.franka.get_contacts(self.cube)
-
-        # Extract valid mask
-        valid_mask = contacts['valid_mask'][0]  # Assuming single environment
-        grasp_reward = 0
-        # Loop through contacts and print message for valid ones
-        for i, is_valid in enumerate(valid_mask):
-            if is_valid:
-                grasp_reward = 5 
-                
-
-
-
-        height_penalty = (gripper_position[:, 2] > 0.7) * -3.0
-
-
-        
-
-        rewards = (
-            -torch.norm(block_position - gripper_position, dim=1)*2  # Get closer to block
-            + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10  # Lift block
-            + (is_grasping & finger_closed) * 5.0  # Grasp stability
-            + collision_penalty  # Penalty for touching the ground
-            + height_penalty
-            + grasp_reward
-            + cube_percent/10
-        )
-        print("Reward:")
-        print(rewards)
+        cube_props, cube_area, cube_x, cube_y, corners = calculate_cube_properties(segmented_cube_mask)
+        cube_percent = torch.tensor((cube_area/1228800)*100, device=self.device)
+        cube_x = torch.tensor(cube_x, device=self.device)
+        cube_y = torch.tensor(cube_y, device=self.device)
 
     
+        # Define target values for valid grasping position
+        TARGET_CUBE_PERCENT = torch.tensor(1.0, device=self.device)
+        TARGET_CUBE_X = torch.tensor(952, device=self.device)
+        TARGET_CUBE_Y = torch.tensor(948, device=self.device)
+        
+        # Define ideal corner coordinates
+        IDEAL_CORNERS = torch.tensor([[ 53.0, 959.0], [ 85.0, 959.0], [ 55.0, 957.0]], device=self.device)
+        
+        # Calculate how close we are to the target values
+        cube_percent_diff = torch.abs(cube_percent - TARGET_CUBE_PERCENT)
+        cube_x_diff = torch.abs(cube_x - TARGET_CUBE_X)
+        cube_y_diff = torch.abs(cube_y - TARGET_CUBE_Y)
+        
+        # Calculate corner matching reward if we have exactly 3 corners
+        corner_reward = 0
+        if corners is not None and len(corners) == 3:
+            detected_corners = torch.tensor(corners, dtype=torch.float32, device=self.device)
+            # Calculate pairwise distances between detected and ideal corners
+            corner_diffs = torch.cdist(detected_corners, IDEAL_CORNERS)
+            # Find the minimum total distance matching between corners
+            min_corner_diff = torch.min(torch.sum(corner_diffs, dim=1))
+            # Convert to reward (negative because we want to minimize the difference)
+            corner_reward = -min_corner_diff / 1000.0  # Scale factor to keep reward reasonable
+        
+        # Define thresholds for what we consider "close enough"
+        PERCENT_THRESHOLD = torch.tensor(0.5, device=self.device)  # Within 0.5% of target
+        COORD_THRESHOLD = torch.tensor(50, device=self.device)    # Within 50 pixels of target
+        
+        # Check if we're in a valid grasping position based on visual properties
+        valid_visual_grasp = (
+            (cube_percent_diff < PERCENT_THRESHOLD) & 
+            (cube_x_diff < COORD_THRESHOLD) & 
+            (cube_y_diff < COORD_THRESHOLD)
+        )
 
+
+
+        block_position = self.cube.get_pos()
+        gripper_position = (self.franka.get_link("bhand_finger1_link_2").get_pos() + 
+                          self.franka.get_link("bhand_finger2_link_2").get_pos() + 
+                          self.franka.get_link("bhand_finger3_link_2").get_pos()) / 3
+        states = torch.concat([cube_props, gripper_position], dim=1)
+
+        # is_grasping = (torch.norm(gripper_position - block_position, dim=1) < 0.05)
+        # finger_closed = (self.finger_pos[:, 0] > 1)
+
+        # contacts = self.franka.get_contacts(self.plane)
+        # valid_mask = contacts['valid_mask'][0]
+        # collision_penalty = 0
+        # for i, is_valid in enumerate(valid_mask):
+        #     if is_valid:
+        #         collision_penalty = -3
+
+        # contacts = self.franka.get_contacts(self.cube)
+        # valid_mask = contacts['valid_mask'][0]
+        # grasp_reward = 0
+        # for i, is_valid in enumerate(valid_mask):
+        #     if is_valid:
+        #         grasp_reward = 5
+
+        if (gripper_position[:, 2] > 0.3):
+
+            height_penalty = gripper_position[:, 2]*(-30) + -5.0
+            print("HEIGHT PENALTY")
+            print(height_penalty)
+        else:
+            height_penalty = 0
+        
+
+        # Calculate rewards
+        rewards = (
+            + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10  # Lift block
+            # + (is_grasping & finger_closed) * 5.0  # Grasp stability
+            # + collision_penalty  # Penalty for touching the ground
+             + height_penalty
+            # + grasp_reward
+            # + cube_percent/10
+            + valid_visual_grasp * 10.0  # Large reward for achieving correct visual properties
+            - (cube_percent_diff + cube_x_diff/1000 + cube_y_diff/1000)  # Small continuous reward for getting closer to target values
+            + corner_reward  # Reward for matching ideal corner positions
+        )
 
         dones = block_position[:, 2] > 0.35
+
+        print("REWARDS")
+        print(rewards)
         return states, rewards, dones
     
 
 
 def calculate_cube_properties(segmented_cube_mask, device="cuda"):
+    # Convert boolean mask to uint8 for OpenCV
+    mask_uint8 = segmented_cube_mask.astype(np.uint8) * 255
+    
+    # Find contours in the mask
+    contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if not contours:
+        # If no cube is detected, return zero tensors
+        return torch.tensor([[0, 0, 0]], dtype=torch.float32, device=device), 0, 0, 0, None
+    
+    # Get the largest contour (should be the cube)
+    largest_contour = max(contours, key=cv2.contourArea)
+    
+    # Approximate the contour to get corners
+    epsilon = 0.02 * cv2.arcLength(largest_contour, True)
+    approx = cv2.approxPolyDP(largest_contour, epsilon, True)
+    
+    # Get the corners
+    corners = approx.reshape(-1, 2)  # Shape: (N, 2) where N is number of corners
+    
     # Compute the area as the sum of True values
     cube_area = np.sum(segmented_cube_mask)
 
     # Get the coordinates of all True values (cube pixels)
     cube_pixels = np.argwhere(segmented_cube_mask)
 
-    if cube_pixels.size == 0:
-        # If no cube is detected, return a zero tensor of shape (1,3)
-        return torch.tensor([[0, 0, 0]], dtype=torch.float32, device=device), 0, 0, 0
 
     # Compute the centroid (mean of x and y coordinates)
     center_y, center_x = cube_pixels.mean(axis=0)
@@ -328,7 +370,7 @@ def calculate_cube_properties(segmented_cube_mask, device="cuda"):
     # Create a single tensor of shape (1,3)
     cube_properties_tensor = torch.tensor([[center_x, center_y, cube_area]], dtype=torch.float32, device=device)
 
-    return cube_properties_tensor, cube_area, center_x, center_y
+    return cube_properties_tensor, cube_area, center_x, center_y, corners
 
 if __name__ == "__main__":
     gs.init(backend=gs.gpu, precision="32")

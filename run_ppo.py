@@ -57,7 +57,7 @@ def run(env, agent):
         done_array = torch.tensor([False] * env.num_envs).to(args.device)
         states, actions, rewards, dones = [], [], [], []
 
-        for step in range(600):
+        for step in range(500):
             
             if (step % 10 != 0):
                 action = agent.select_action(state)
