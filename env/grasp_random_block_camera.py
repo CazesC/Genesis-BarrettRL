@@ -52,9 +52,9 @@ class GraspRandomBlockCamEnv:
         self.cube.set_friction(3.0)
 
         self.cam_0 = self.scene.add_camera(
-         res=(1280, 960),
-        fov=30,
-        GUI=True,
+         res=(1280, 720),
+        fov=87,
+        GUI=False,
         )
         self.ik_cache = {}  # Shared IK cache for all robots
         self.num_envs = num_envs
@@ -141,9 +141,10 @@ class GraspRandomBlockCamEnv:
         self.pos = pos.unsqueeze(0).repeat(self.num_envs, 1)
         quat = torch.tensor([0, 1, 0, 0], dtype=torch.float32, device=self.device)
         self.quat = quat.unsqueeze(0).repeat(self.num_envs, 1)
+        tcp_target_pos = self.pos - torch.tensor(self.tcp_offset, device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
         self.qpos = self.franka.inverse_kinematics(
             link=self.end_effector,
-            pos = self.pos,
+            pos = tcp_target_pos,
             quat = self.quat,
         )
 
@@ -206,17 +207,16 @@ class GraspRandomBlockCamEnv:
         self.pos = pos
 
 
-        
-        pos_key = tuple(pos.cpu().numpy().flatten())  # Convert tensor to a hashable key
+        tcp_target_pos = self.pos - torch.tensor(self.tcp_offset, device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+        pos_key = tuple(tcp_target_pos.cpu().numpy().flatten())  # Convert tensor to a hashable key
 
-        
         if pos_key in self.ik_cache:
             self.qpos = self.ik_cache[pos_key]  # Use cached solution
             #print("Using Cache")
         else:
             self.qpos = self.franka.inverse_kinematics(
             link=self.end_effector,
-            pos=pos,
+            pos=tcp_target_pos,
             quat=self.quat,
             respect_joint_limit = True
             )
@@ -240,6 +240,10 @@ class GraspRandomBlockCamEnv:
         _, depth_image, segmentation_mask, _ = self.cam_0.render(segmentation=True)
         segmented_cube_mask = (segmentation_mask == 2)
         
+        cv2.imshow("Segmentation", segmentation_mask.astype(np.uint8) * 100)
+        cv2.waitKey(1)
+
+
         cube_props, cube_area, cube_x, cube_y, corners = calculate_cube_properties(segmented_cube_mask)
         cube_percent = torch.tensor((cube_area/1228800)*100, device=self.device)
         cube_x = torch.tensor(cube_x, device=self.device)
