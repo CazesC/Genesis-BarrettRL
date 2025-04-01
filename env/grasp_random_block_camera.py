@@ -54,7 +54,7 @@ class GraspRandomBlockCamEnv:
         self.cam_0 = self.scene.add_camera(
          res=(1280, 960),
         fov=30,
-        GUI=True,
+        GUI=False,
         )
         self.ik_cache = {}  # Shared IK cache for all robots
         self.num_envs = num_envs
@@ -137,7 +137,7 @@ class GraspRandomBlockCamEnv:
         self.tcp_offset = np.array([0.0, 0.0, 0.06]) # Offset from link_7 to TCP
 
         ## here self.pos and self.quat is target for the end effector; not the cube. cube position is set in reset()
-        pos = torch.tensor([0.9, 0.0, 0.4], dtype=torch.float32, device=self.device)
+        pos = torch.tensor([1.0, 0.0, 0.4], dtype=torch.float32, device=self.device)
         self.pos = pos.unsqueeze(0).repeat(self.num_envs, 1)
         quat = torch.tensor([0, 1, 0, 0], dtype=torch.float32, device=self.device)
         self.quat = quat.unsqueeze(0).repeat(self.num_envs, 1)
@@ -314,19 +314,20 @@ class GraspRandomBlockCamEnv:
 
         print(actions)
         
+        rewards = -torch.norm(block_position - gripper_position, dim=1) + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10
 
-        # Calculate rewards
-        rewards = (
-            + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10  # Lift block
-            # + (is_grasping & finger_closed) * 5.0  # Grasp stability
-            # + collision_penalty  # Penalty for touching the ground
-             + height_penalty
-            # + grasp_reward
-            # + cube_percent/10
-            + valid_visual_grasp * 10.0  # Large reward for achieving correct visual properties
-            - (cube_percent_diff + cube_x_diff/1000 + cube_y_diff/1000)  # Small continuous reward for getting closer to target values
-            + corner_reward  # Reward for matching ideal corner positions
-        )
+        # # Calculate rewards
+        # rewards = (
+        #     + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10  # Lift block
+        #     # + (is_grasping & finger_closed) * 5.0  # Grasp stability
+        #     # + collision_penalty  # Penalty for touching the ground
+        #     # + height_penalty
+        #     # + grasp_reward
+        #     # + cube_percent/10
+        #     #+ valid_visual_grasp * 10.0  # Large reward for achieving correct visual properties
+        #     #- (cube_percent_diff + cube_x_diff/1000 + cube_y_diff/1000)  # Small continuous reward for getting closer to target values
+        #     #+ corner_reward  # Reward for matching ideal corner positions
+        # )
 
         dones = block_position[:, 2] > 0.35
         return states, rewards, dones
