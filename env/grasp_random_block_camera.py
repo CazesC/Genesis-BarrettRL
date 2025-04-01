@@ -52,8 +52,8 @@ class GraspRandomBlockCamEnv:
         self.cube.set_friction(3.0)
 
         self.cam_0 = self.scene.add_camera(
-         res=(1280, 960),
-        fov=30,
+         res=(1280, 720),
+        fov=87,
         GUI=False,
         )
         self.ik_cache = {}  # Shared IK cache for all robots
@@ -254,23 +254,30 @@ class GraspRandomBlockCamEnv:
         TARGET_CUBE_Y = torch.tensor(948, device=self.device)
         
         # Define ideal corner coordinates
-        IDEAL_CORNERS = torch.tensor([[ 53.0, 959.0], [ 85.0, 959.0], [ 55.0, 957.0]], device=self.device)
+        IDEAL_CORNERS = torch.tensor([[ 357.0, 588.0], [363.0, 719.0], [ 652.0, 719.0], [653.0, 484.0], [489.0, 481.0]], device=self.device)
         
         # Calculate how close we are to the target values
         cube_percent_diff = torch.abs(cube_percent - TARGET_CUBE_PERCENT)
         cube_x_diff = torch.abs(cube_x - TARGET_CUBE_X)
         cube_y_diff = torch.abs(cube_y - TARGET_CUBE_Y)
         
-        # Calculate corner matching reward if we have exactly 3 corners
+        # Calculate corner matching reward dynamically based on detected corners
         corner_reward = 0
-        if corners is not None and len(corners) == 3:
+        if corners is not None:
             detected_corners = torch.tensor(corners, dtype=torch.float32, device=self.device)
-            # Calculate pairwise distances between detected and ideal corners
-            corner_diffs = torch.cdist(detected_corners, IDEAL_CORNERS)
+            num_detected = len(detected_corners)
+            ideal_corners_subset = IDEAL_CORNERS[:num_detected]  # Take only the first N ideal corners
+            print(detected_corners)
+            
+            # Calculate pairwise distances between detected and selected ideal corners
+            corner_diffs = torch.cdist(detected_corners, ideal_corners_subset)
+            
             # Find the minimum total distance matching between corners
             min_corner_diff = torch.min(torch.sum(corner_diffs, dim=1))
+            
             # Convert to reward (negative because we want to minimize the difference)
             corner_reward = -min_corner_diff / 1000.0  # Scale factor to keep reward reasonable
+
         
         # Define thresholds for what we consider "close enough"
         PERCENT_THRESHOLD = torch.tensor(0.5, device=self.device)  # Within 0.5% of target
@@ -316,20 +323,19 @@ class GraspRandomBlockCamEnv:
 
         print(actions)
         
-        rewards = -torch.norm(block_position - gripper_position, dim=1) + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10
+        #rewards = -torch.norm(block_position - gripper_position, dim=1) + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10
 
-        # # Calculate rewards
-        # rewards = (
-        #     + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10  # Lift block
-        #     # + (is_grasping & finger_closed) * 5.0  # Grasp stability
-        #     # + collision_penalty  # Penalty for touching the ground
-        #     # + height_penalty
-        #     # + grasp_reward
-        #     # + cube_percent/10
-        #     #+ valid_visual_grasp * 10.0  # Large reward for achieving correct visual properties
-        #     #- (cube_percent_diff + cube_x_diff/1000 + cube_y_diff/1000)  # Small continuous reward for getting closer to target values
-        #     #+ corner_reward  # Reward for matching ideal corner positions
-        # )
+        # Calculate rewards
+        rewards = (
+            + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10  # Lift block
+            # + (is_grasping & finger_closed) * 5.0  # Grasp stability
+            # + collision_penalty  # Penalty for touching the ground
+             + height_penalty
+            # + grasp_reward
+            + valid_visual_grasp * 10.0  # Large reward for achieving correct visual properties
+            - (cube_x_diff/1000 + cube_y_diff/1000)  # Small continuous reward for getting closer to target values
+            + corner_reward  # Reward for matching ideal corner positions
+        )
 
         dones = block_position[:, 2] > 0.35
         return states, rewards, dones
