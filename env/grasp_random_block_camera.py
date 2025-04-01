@@ -237,7 +237,7 @@ class GraspRandomBlockCamEnv:
         
         self.cam_0.set_pose(transform=transform_matrices[0] @ self.cam_0_transform)
 
-        rgb_image, depth_image, segmentation_mask, _ = self.cam_0.render(segmentation=True)
+        _, depth_image, segmentation_mask, _ = self.cam_0.render(segmentation=True)
         segmented_cube_mask = (segmentation_mask == 2)
         
         cube_props, cube_area, cube_x, cube_y, corners = calculate_cube_properties(segmented_cube_mask)
@@ -309,10 +309,10 @@ class GraspRandomBlockCamEnv:
         if (gripper_position[:, 2] > 0.3):
 
             height_penalty = gripper_position[:, 2]*(-30) + -5.0
-            print("HEIGHT PENALTY")
-            print(height_penalty)
         else:
             height_penalty = 0
+
+        print(actions)
         
 
         # Calculate rewards
@@ -329,9 +329,6 @@ class GraspRandomBlockCamEnv:
         )
 
         dones = block_position[:, 2] > 0.35
-
-        print("REWARDS")
-        print(rewards)
         return states, rewards, dones
     
 

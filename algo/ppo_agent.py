@@ -17,6 +17,10 @@ class PPOAgent:
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.gamma = gamma
         self.clip_epsilon = clip_epsilon
+        self.entropy_coef = 0.01  # Coefficient for entropy regularization
+        self.exploration_rate = 0.2  # 20% chance of random action
+        self.exploration_decay = 0.995  # Decay rate for exploration
+        self.min_exploration = 0.05  # Minimum exploration rate
 
     def save_checkpoint(self):
         checkpoint = {
@@ -32,11 +36,18 @@ class PPOAgent:
         print(f"Checkpoint loaded from {self.checkpoint_path}")
 
     def select_action(self, state):
+        # Random exploration
+        if torch.rand(1, device=self.device) < self.exploration_rate:
+            return torch.randint(0, self.model.network[-1].out_features, (state.shape[0],), device=self.device)
+        
         with torch.no_grad():
             logits = self.model(state)
         probs = nn.functional.softmax(logits, dim=-1)
         dist = Categorical(probs)
         action = dist.sample()
+        
+        # Decay exploration rate
+        self.exploration_rate = max(self.min_exploration, self.exploration_rate * self.exploration_decay)
         
         return action
 
@@ -45,7 +56,6 @@ class PPOAgent:
         states_tensor = torch.stack(states).to(self.device)
         actions_tensor = torch.stack(actions).to(self.device)
 
-        
         # Calculate discounted rewards
         discounted_rewards = []
         R = 0
@@ -76,7 +86,11 @@ class PPOAgent:
             surrogate_loss_1 = ratio * advantages
             surrogate_loss_2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages
             
-            loss = -torch.min(surrogate_loss_1, surrogate_loss_2).mean()
+            # Add entropy regularization to encourage exploration
+            entropy = -(probs_new * torch.log(probs_new + 1e-10)).sum(dim=-1).mean()
+            
+            # Combined loss with entropy regularization
+            loss = -torch.min(surrogate_loss_1, surrogate_loss_2).mean() - self.entropy_coef * entropy
 
             # Perform optimization step
             self.optimizer.zero_grad()
