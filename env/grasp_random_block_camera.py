@@ -141,9 +141,10 @@ class GraspRandomBlockCamEnv:
         self.pos = pos.unsqueeze(0).repeat(self.num_envs, 1)
         quat = torch.tensor([0, 1, 0, 0], dtype=torch.float32, device=self.device)
         self.quat = quat.unsqueeze(0).repeat(self.num_envs, 1)
+        tcp_target_pos = self.pos - torch.tensor(self.tcp_offset, device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
         self.qpos = self.franka.inverse_kinematics(
             link=self.end_effector,
-            pos = self.pos,
+            pos = tcp_target_pos,
             quat = self.quat,
         )
 
@@ -207,7 +208,8 @@ class GraspRandomBlockCamEnv:
 
 
         
-        pos_key = tuple(pos.cpu().numpy().flatten())  # Convert tensor to a hashable key
+        tcp_target_pos = self.pos - torch.tensor(self.tcp_offset, device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+        pos_key = tuple(tcp_target_pos.cpu().numpy().flatten())  # Convert tensor to a hashable key
 
         
         if pos_key in self.ik_cache:
@@ -216,7 +218,7 @@ class GraspRandomBlockCamEnv:
         else:
             self.qpos = self.franka.inverse_kinematics(
             link=self.end_effector,
-            pos=pos,
+            pos=tcp_target_pos,
             quat=self.quat,
             respect_joint_limit = True
             )
