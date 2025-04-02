@@ -426,7 +426,7 @@ class GraspRandomBlockCamEnv:
         height_penalty[mask] = gripper_position[mask, 2] * (-30) + -5.0
         
         min_lift_height = 0.02  # 2 cm
-        lift_reward = torch.maximum(torch.full_like(block_position[:, 2], min_lift_height), block_position[:, 2]) * 100
+        lift_reward = torch.maximum(torch.full_like(block_position[:, 2], min_lift_height), block_position[:, 2]) * 100 - 2.779
 
 
         # print("lift_reward:", block_position[:, 2].shape)

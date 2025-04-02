@@ -61,10 +61,8 @@ def run(env, agent):
 
         for step in range(700):
             
-            if (step % 10 != 0):
-                action = agent.select_action(state)
-            else:
-                action = torch.full((env.num_envs,), manual_action_value, device=args.device)
+        
+            action = agent.select_action(state)
 
             # # Make sure this has shape [num_envs], e.g. tensor([0, 1, 2, 1])
             # if action.dim() == 0:
