@@ -51,22 +51,51 @@ class GraspRandomBlockCamEnv:
         )
         self.cube.set_friction(3.0)
 
-        self.cam_0 = self.scene.add_camera(
-         res=(1280, 720),
-        fov=87,
-        GUI=False,
-        )
         self.ik_cache = {}  # Shared IK cache for all robots
         self.num_envs = num_envs
-        self.scene.build(n_envs=self.num_envs, env_spacing=(2.0, 2.0))
+        # self.scene.build(n_envs=self.num_envs, env_spacing=(2.0, 2.0))
         
         
         #fixed transformation
         self.cam_0_transform = trans_quat_to_T(np.array([0, -0.08, 0.095]), xyz_to_quat(np.array([175, 0, 0])))
 
+
+        # self.envs_idx = np.arange(self.num_envs)
+
+        self.cameras = []            # <-- Initialize here
+        self.cam_transforms = []     # <-- And here
+
+        self.setup_cameras()         # <-- Move this BEFORE build
+        self.scene.build(n_envs=self.num_envs, env_spacing=(2.0, 2.0))  # <-- Then build the scene
         self.envs_idx = np.arange(self.num_envs)
         self.build_env()
     
+    def setup_cameras(self):
+        for _ in range(self.num_envs):
+            cam = self.scene.add_camera(
+                res=(1280, 720),
+                fov=87,
+                GUI=False,
+            )
+            self.cameras.append(cam)
+            self.cam_transforms.append(self.cam_0_transform.copy())
+
+    def update_camera_poses(self):
+        for i in range(self.num_envs):
+            end_effector = self.franka.get_link("wam_link_7")
+            transform_matrix = trans_quat_to_T(
+                end_effector.get_pos(envs_idx=i),
+                end_effector.get_quat(envs_idx=i)
+            ).cpu().numpy()[0]
+            self.cameras[i].set_pose(transform=transform_matrix @ self.cam_transforms[i])
+
+    def render_camera_views(self):
+        rendered = []
+        for cam in self.cameras:
+            _, _, segmentation_mask, _ = cam.render(segmentation=True)
+            rendered.append(segmentation_mask)
+        return rendered
+
     def build_env(self):
         self.motors_dof = torch.arange(7).to(self.device)
         self.fingers_dof = torch.arange(7, 9).to(self.device)
@@ -190,21 +219,33 @@ class GraspRandomBlockCamEnv:
         # action_mask_7 = actions == 7 # Move backward
 
 
-        
-        self.finger_pos[action_mask_0] = 0
-        self.finger_pos[action_mask_1] = 1.62
+        idxs_0 = torch.nonzero(action_mask_0).squeeze(-1)
+        idxs_1 = torch.nonzero(action_mask_1).squeeze(-1)
+
+        self.finger_pos[idxs_0, :] = 0
+        self.finger_pos[idxs_1, :] = 1.62
+
+
+        # self.finger_pos[action_mask_0, :] = 0
+        # self.finger_pos[action_mask_1, :] = 1.62
         #self.finger_pos[action_mask_2] = 1.7
 
         
         pos = self.pos.clone()
-        pos[action_mask_2, 2] += 0.01
-        pos[action_mask_3, 2] -= 0.01
+        idxs_2 = torch.nonzero(action_mask_2).squeeze(-1)
+        pos[idxs_2, 2] += 0.01
+        idxs_3 = torch.nonzero(action_mask_3).squeeze(-1)
+        pos[idxs_3, 2] -= 0.01
 
-        if pos[:, 2] > 0.75:
-            pos[:, 2] = 0.75
+        # pos[action_mask_2, 2] += 0.01
+        # pos[action_mask_3, 2] -= 0.01
 
-        if pos[:, 2] < 0:
-            pos[:, 2] = 0
+        # if pos[:, 2] > 0.75:
+        #     pos[:, 2] = 0.75
+
+        # if pos[:, 2] < 0:
+        #     pos[:, 2] = 0
+        pos[:, 2] = torch.clamp(pos[:, 2], min=0.0, max=0.75)
 
         
         # pos[action_mask_4, 0] -= 0.05
@@ -242,15 +283,90 @@ class GraspRandomBlockCamEnv:
 
         end_effector = self.franka.get_link("wam_link_7")
 
-        transform_matrices = trans_quat_to_T(end_effector.get_pos(), end_effector.get_quat()).cpu().numpy()
+        # segmented_cube_mask = None  # Define it outside the loop
+
+
+        cube_props_list = []
+        cube_area_list = []
+        cube_x_list = []
+        cube_y_list = []
+        corners_list = []
+        corner_reward_list = []
+        # Define ideal corner coordinates
+        IDEAL_CORNERS = torch.tensor([[ 357.0, 588.0], [363.0, 719.0], [ 652.0, 719.0], [653.0, 484.0], [489.0, 481.0]], device=self.device)
+
+        env_spacing = np.array([2.0, 2.0])  # match your scene.build spacing
+
+        for i in range(self.num_envs):
+            # Compute environment offset based on grid layout
+            row = i // int(np.sqrt(self.num_envs))
+            col = i % int(np.sqrt(self.num_envs))
+            env_offset = np.array([col * env_spacing[0] - (env_spacing[0] * (np.sqrt(self.num_envs)-1) / 2),
+                                row * env_spacing[1] - (env_spacing[1] * (np.sqrt(self.num_envs)-1) / 2),
+                                0.0])
+            T_env = translation_matrix(env_offset)
+
+            # Pose of end effector in *local* env
+            pos_i = end_effector.get_pos(envs_idx=[i])
+            quat_i = end_effector.get_quat(envs_idx=[i])
+            # Pose of end-effector in its own env frame
+            T_ee = trans_quat_to_T(
+                end_effector.get_pos(envs_idx=[i]),
+                end_effector.get_quat(envs_idx=[i])
+            ).cpu().numpy().squeeze()
+
+            T_cam_local = self.cam_transforms[i]  # relative offset
+
+            # Camera pose = T_env * T_ee * T_cam_offset
+            cam_T = T_env @ T_ee @ self.cam_transforms[i]
+            self.cameras[i].set_pose(transform=cam_T)
+
+            rgb, _, seg, _ = self.cameras[i].render(segmentation=True)
+            seg_display = (seg == 2).astype(np.uint8) * 255
+            # cv2.imshow(f"Env {i} - Camera View", seg_display)
+
+            cube_props, cube_area, cube_x, cube_y, corners = calculate_cube_properties(seg == 2)
+            cube_props_list.append(cube_props)
+            cube_area_list.append(cube_area)
+            cube_x_list.append(cube_x)
+            cube_y_list.append(cube_y)
+            corners_list.append(corners)
+
+                # --- NEW: compute corner reward per env ---
+            if corners is not None:
+                detected_corners = torch.tensor(corners, dtype=torch.float32, device=self.device)
+                num_detected = len(detected_corners)
+                ideal_corners_subset = IDEAL_CORNERS[:num_detected]  # Take only the first N ideal corners
+                # Calculate pairwise distances between detected and selected ideal corners
+                corner_diffs = torch.cdist(detected_corners, ideal_corners_subset)
+                # Find the minimum total distance matching between corners
+                min_corner_diff = torch.min(torch.sum(corner_diffs, dim=1))
+                # Convert to reward (negative because we want to minimize the difference)
+                corner_reward = -min_corner_diff / 1000.0  # scale
+            else:
+                corner_reward = torch.tensor(0.0, device=self.device)
+
+            corner_reward_list.append(corner_reward)
+
+        corner_reward_tensor = torch.tensor(corner_reward_list, device=self.device).view(-1)
+
+
+        # cv2.waitKey(1)
+
+        cube_props = torch.cat(cube_props_list, dim=0)  # [num_envs, 3]
+
+
+
+
+        # transform_matrices = trans_quat_to_T(end_effector.get_pos(), end_effector.get_quat()).cpu().numpy()
 
         
-        self.cam_0.set_pose(transform=transform_matrices[0] @ self.cam_0_transform)
+        # self.cam_0.set_pose(transform=transform_matrices[0] @ self.cam_0_transform)
 
-        _, depth_image, segmentation_mask, _ = self.cam_0.render(segmentation=True)
-        segmented_cube_mask = (segmentation_mask == 2)
+        # _, depth_image, segmentation_mask, _ = self.cam_0.render(segmentation=True)
+        # segmented_cube_mask = (segmentation_mask == 2)
         
-        cube_props, cube_area, cube_x, cube_y, corners = calculate_cube_properties(segmented_cube_mask)
+        # cube_props, cube_area, cube_x, cube_y, corners = calculate_cube_properties(segmented_cube_mask)
         cube_percent = torch.tensor((cube_area/1228800)*100, device=self.device)
         cube_x = torch.tensor(cube_x, device=self.device)
         cube_y = torch.tensor(cube_y, device=self.device)
@@ -261,31 +377,12 @@ class GraspRandomBlockCamEnv:
         #TARGET_CUBE_X = torch.tensor(952, device=self.device)
         #TARGET_CUBE_Y = torch.tensor(948, device=self.device)
         
-        # Define ideal corner coordinates
-        IDEAL_CORNERS = torch.tensor([[ 357.0, 588.0], [363.0, 719.0], [ 652.0, 719.0], [653.0, 484.0], [489.0, 481.0]], device=self.device)
         
         # Calculate how close we are to the target values
         cube_percent_diff = torch.abs(cube_percent - TARGET_CUBE_PERCENT)
         #cube_x_diff = torch.abs(cube_x - TARGET_CUBE_X)
         #cube_y_diff = torch.abs(cube_y - TARGET_CUBE_Y)
-        
-        # Calculate corner matching reward dynamically based on detected corners
-        corner_reward = 0
-        if corners is not None:
-            detected_corners = torch.tensor(corners, dtype=torch.float32, device=self.device)
-            num_detected = len(detected_corners)
-            ideal_corners_subset = IDEAL_CORNERS[:num_detected]  # Take only the first N ideal corners
-
-            # Calculate pairwise distances between detected and selected ideal corners
-            corner_diffs = torch.cdist(detected_corners, ideal_corners_subset)
-            
-            # Find the minimum total distance matching between corners
-            min_corner_diff = torch.min(torch.sum(corner_diffs, dim=1))
-            
-            # Convert to reward (negative because we want to minimize the difference)
-            corner_reward = -min_corner_diff / 1000.0  # Scale factor to keep reward reasonable
-
-        
+               
         # Define thresholds for what we consider "close enough"
         PERCENT_THRESHOLD = torch.tensor(0.5, device=self.device)  # Within 0.5% of target
         COORD_THRESHOLD = torch.tensor(50, device=self.device)    # Within 50 pixels of target
@@ -299,11 +396,15 @@ class GraspRandomBlockCamEnv:
 
 
 
-        block_position = self.cube.get_pos()
-        gripper_position = (self.franka.get_link("bhand_finger1_link_2").get_pos() + 
-                          self.franka.get_link("bhand_finger2_link_2").get_pos() + 
-                          self.franka.get_link("bhand_finger3_link_2").get_pos()) / 3
+        block_position = self.cube.get_pos(envs_idx=self.envs_idx)
+        gripper_position = (self.franka.get_link("bhand_finger1_link_2").get_pos(envs_idx=self.envs_idx) + 
+                          self.franka.get_link("bhand_finger2_link_2").get_pos(envs_idx=self.envs_idx) + 
+                          self.franka.get_link("bhand_finger3_link_2").get_pos(envs_idx=self.envs_idx)) / 3
         states = torch.concat([cube_props, gripper_position], dim=1)
+
+        # print("envs_idx", self.envs_idx)
+        # print("block_position", block_position.shape)
+        # print("block_position[:, 2]", block_position[:, 2].shape)
 
         # is_grasping = (torch.norm(gripper_position - block_position, dim=1) < 0.05)
         # finger_closed = (self.finger_pos[:, 0] > 1)
@@ -316,38 +417,53 @@ class GraspRandomBlockCamEnv:
         #         collision_penalty = -3
 
         contacts = self.franka.get_contacts(self.cube)
-        valid_mask = contacts['valid_mask'][0]
-        grasp_reward = 0
-        for i, is_valid in enumerate(valid_mask):
-            if is_valid:
-                grasp_reward = 10
+        valid_mask_np = contacts['valid_mask']  # shape: (num_envs, num_contacts)
+        valid_mask = torch.tensor(valid_mask_np, dtype=torch.bool, device=self.device)
+        grasp_reward = torch.where(valid_mask.any(dim=1), torch.tensor(10.0, device=self.device), torch.tensor(0.0, device=self.device))
 
-        if (gripper_position[:, 2] > 0.3):
+        height_penalty = torch.zeros(self.num_envs, device=self.device)
+        mask = gripper_position[:, 2] > 0.3
+        height_penalty[mask] = gripper_position[mask, 2] * (-30) + -5.0
+        
+        min_lift_height = 0.02  # 2 cm
+        lift_reward = torch.maximum(torch.full_like(block_position[:, 2], min_lift_height), block_position[:, 2]) * 100
 
-            height_penalty = gripper_position[:, 2]*(-30) + -5.0
-        else:
-            height_penalty = 0
+
+        # print("lift_reward:", block_position[:, 2].shape)
+        # print("height_penalty:", height_penalty.shape)
+        # print("grasp_reward:", grasp_reward.shape)
+        # print("corner_reward_tensor:", corner_reward_tensor.shape)
+
 
         
+
+
         #rewards = -torch.norm(block_position - gripper_position, dim=1) + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 10
 
         # Calculate rewards
         rewards = (
-            + torch.maximum(torch.tensor(0.02), block_position[:, 2]) * 100  # Lift block
+            + lift_reward
             # + (is_grasping & finger_closed) * 5.0  # Grasp stability
             # + collision_penalty  # Penalty for touching the ground
-             + height_penalty
-             + grasp_reward
+            + height_penalty
+            + grasp_reward
             #+ valid_visual_grasp * 10.0  # Large reward for achieving correct visual properties
             #- (cube_x_diff/1000 + cube_y_diff/1000)  # Small continuous reward for getting closer to target values
             + corner_reward  # Reward for matching ideal corner positions
         )
-
-
+        print(f"lift reward: {lift_reward}")
+        print(f"height penalty: {height_penalty}")
+        print(f"grasp reward: {grasp_reward}")
+        print(f"corner reward: {corner_reward_tensor}")
+        print(f"total reward: {rewards}")
+        
         dones = block_position[:, 2] > 0.35
         return states, rewards, dones
     
-
+def translation_matrix(offset):
+    T = np.eye(4)
+    T[:3, 3] = offset
+    return T
 
 def calculate_cube_properties(segmented_cube_mask, device="cuda"):
     # Convert boolean mask to uint8 for OpenCV
