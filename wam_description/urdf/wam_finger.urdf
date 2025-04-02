@@ -501,8 +501,8 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <!-- <box size = "0.1 0.02 0.02"/> -->
-        <mesh filename="package://wam_description/mesh/bh_link3.stl" scale="1.0 1.0 1.0"/>
+        <box size = "0.1 0.02 0.02"/>
+        <!-- <mesh filename="package://wam_description/mesh/bh_link3.stl" scale="1.0 1.0 1.0"/> -->
       </geometry>
       <material name="Grey">
         <color rgba="0.5 0.5 0.5 1.0"/>
@@ -554,8 +554,8 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <!-- <box size = "0.1 0.02 0.02"/> -->
-        <mesh filename="package://wam_description/mesh/bh_link3.stl" scale="1.0 1.0 1.0"/>
+        <box size = "0.1 0.02 0.02"/>
+        <!-- <mesh filename="package://wam_description/mesh/bh_link3.stl" scale="1.0 1.0 1.0"/> -->
       </geometry>
       <material name="Grey">
         <color rgba="0.5 0.5 0.5 1.0"/>
@@ -607,8 +607,8 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <!-- <box size = "0.1 0.02 0.02"/> -->
-        <mesh filename="package://wam_description/mesh/bh_link3.stl" scale="1.0 1.0 1.0"/>
+        <box size = "0.1 0.02 0.02"/>
+        <!-- <mesh filename="package://wam_description/mesh/bh_link3.stl" scale="1.0 1.0 1.0"/> -->
       </geometry>
       <material name="Grey">
         <color rgba="0.5 0.5 0.5 1.0"/>

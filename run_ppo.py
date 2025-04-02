@@ -58,11 +58,20 @@ def run(env, agent):
         # done_array = torch.tensor([False] * env.num_envs).to(args.device)
         done_array = torch.zeros(env.num_envs, dtype=torch.bool, device=args.device)
         states, actions, rewards, dones = [], [], [], []
+        grasp_rewards = torch.zeros(env.num_envs).to(args.device)
 
         for step in range(700):
+
+            action = agent.select_action(state)  # Select actions for all environments first
+
+            if step % 5 == 0:
+                for i in range(env.num_envs):  # Loop over environments
+                    if grasp_rewards[i] == 10:  # Check if grasp reward is 10
+                        action[i] = manual_action_value  # Override only this environment's action
+                        
             
         
-            action = agent.select_action(state)
+        
 
             # # Make sure this has shape [num_envs], e.g. tensor([0, 1, 2, 1])
             # if action.dim() == 0:
@@ -77,7 +86,7 @@ def run(env, agent):
             # Save action
             actions.append(action.clone().detach())
             # Take step in environment
-            next_state, reward, done = env.step(action)
+            next_state, reward, done, grasp_rewards = env.step(action)
 
             states.append(state)
             # actions.append(action)

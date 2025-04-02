@@ -4,6 +4,7 @@ import torch
 from .util import euler_to_quaternion
 from genesis.utils.geom import trans_quat_to_T, xyz_to_quat, quat_to_T
 import cv2
+from scipy.optimize import linear_sum_assignment
 
 class GraspRandomBlockCamEnv:
     def __init__(self, vis, device, num_envs=1):
@@ -245,7 +246,7 @@ class GraspRandomBlockCamEnv:
 
         # if pos[:, 2] < 0:
         #     pos[:, 2] = 0
-        pos[:, 2] = torch.clamp(pos[:, 2], min=0.0, max=0.75)
+        pos[:, 2] = torch.clamp(pos[:, 2], min=0.2, max=0.75)
 
         
         # pos[action_mask_4, 0] -= 0.05
@@ -275,8 +276,6 @@ class GraspRandomBlockCamEnv:
             #print("Calculate and Store")
 
         
-        
-
         self.franka.control_dofs_position(self.qpos[:, :7], self.motors_dof, self.envs_idx)
         self.franka.control_dofs_position(self.finger_pos, self.hand_dofs_idx, self.envs_idx)
         self.scene.step()
@@ -323,7 +322,6 @@ class GraspRandomBlockCamEnv:
 
             rgb, _, seg, _ = self.cameras[i].render(segmentation=True)
             seg_display = (seg == 2).astype(np.uint8) * 255
-            # cv2.imshow(f"Env {i} - Camera View", seg_display)
 
             cube_props, cube_area, cube_x, cube_y, corners = calculate_cube_properties(seg == 2)
             cube_props_list.append(cube_props)
@@ -332,26 +330,14 @@ class GraspRandomBlockCamEnv:
             cube_y_list.append(cube_y)
             corners_list.append(corners)
 
-                # --- NEW: compute corner reward per env ---
-            if corners is not None:
-                detected_corners = torch.tensor(corners, dtype=torch.float32, device=self.device)
-                num_detected = len(detected_corners)
-                ideal_corners_subset = IDEAL_CORNERS[:num_detected]  # Take only the first N ideal corners
-                # Calculate pairwise distances between detected and selected ideal corners
-                corner_diffs = torch.cdist(detected_corners, ideal_corners_subset)
-                # Find the minimum total distance matching between corners
-                min_corner_diff = torch.min(torch.sum(corner_diffs, dim=1))
-                # Convert to reward (negative because we want to minimize the difference)
-                corner_reward = -min_corner_diff / 1000.0  # scale
-            else:
-                corner_reward = torch.tensor(0.0, device=self.device)
+            corner_reward = compute_corner_reward(corners, IDEAL_CORNERS, device=self.device)
+            corner_reward *= 2
 
             corner_reward_list.append(corner_reward)
 
         corner_reward_tensor = torch.tensor(corner_reward_list, device=self.device).view(-1)
 
 
-        # cv2.waitKey(1)
 
         cube_props = torch.cat(cube_props_list, dim=0)  # [num_envs, 3]
 
@@ -421,9 +407,9 @@ class GraspRandomBlockCamEnv:
         valid_mask = torch.tensor(valid_mask_np, dtype=torch.bool, device=self.device)
         grasp_reward = torch.where(valid_mask.any(dim=1), torch.tensor(10.0, device=self.device), torch.tensor(0.0, device=self.device))
 
-        height_penalty = torch.zeros(self.num_envs, device=self.device)
-        mask = gripper_position[:, 2] > 0.3
-        height_penalty[mask] = gripper_position[mask, 2] * (-30) + -5.0
+        # height_penalty = torch.zeros(self.num_envs, device=self.device)
+        # mask = gripper_position[:, 2] > 0.3
+        # height_penalty[mask] = gripper_position[mask, 2] * (-30) + -5.0
         
         min_lift_height = 0.02  # 2 cm
         lift_reward = torch.maximum(torch.full_like(block_position[:, 2], min_lift_height), block_position[:, 2]) * 100 - 2.779
@@ -445,20 +431,22 @@ class GraspRandomBlockCamEnv:
             + lift_reward
             # + (is_grasping & finger_closed) * 5.0  # Grasp stability
             # + collision_penalty  # Penalty for touching the ground
-            + height_penalty
+            # + height_penalty
             + grasp_reward
             #+ valid_visual_grasp * 10.0  # Large reward for achieving correct visual properties
             #- (cube_x_diff/1000 + cube_y_diff/1000)  # Small continuous reward for getting closer to target values
             + corner_reward  # Reward for matching ideal corner positions
         )
         print(f"lift reward: {lift_reward}")
-        print(f"height penalty: {height_penalty}")
+        # print(f"height penalty: {height_penalty}")
         print(f"grasp reward: {grasp_reward}")
         print(f"corner reward: {corner_reward_tensor}")
         print(f"total reward: {rewards}")
+        print(f"pos: {pos}")
+        print(f"action: {actions}")
         
         dones = block_position[:, 2] > 0.35
-        return states, rewards, dones
+        return states, rewards, dones, grasp_reward
     
 def translation_matrix(offset):
     T = np.eye(4)
@@ -500,6 +488,24 @@ def calculate_cube_properties(segmented_cube_mask, device="cuda"):
     cube_properties_tensor = torch.tensor([[center_x, center_y, cube_area]], dtype=torch.float32, device=device)
 
     return cube_properties_tensor, cube_area, center_x, center_y, corners
+
+def compute_corner_reward(detected_corners, ideal_corners, scale=1000.0, device="cuda"):
+    if detected_corners is None or len(detected_corners) == 0:
+        return torch.tensor(-0.2, device=device)  # small penalty
+ 
+    detected = torch.tensor(detected_corners, dtype=torch.float32, device=device)
+    num = min(len(detected), len(ideal_corners))
+    detected = detected[:num]
+    ideal = ideal_corners[:num]
+ 
+    # Compute pairwise distances
+    cost_matrix = torch.cdist(detected, ideal).cpu().numpy()  # Shape [N, N]
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)  # Hungarian match
+ 
+    total_cost = cost_matrix[row_ind, col_ind].sum()
+    reward = -total_cost / scale
+ 
+    return torch.tensor(reward, device=device)
 
 if __name__ == "__main__":
     gs.init(backend=gs.gpu, precision="32")
