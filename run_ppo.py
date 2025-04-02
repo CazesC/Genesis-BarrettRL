@@ -47,14 +47,16 @@ def train_ppo(args):
         run(env, agent)
 
 def run(env, agent):
-    num_episodes = 6000
+    num_episodes = 4000
     batch_size = args.batch_size if args.batch_size else 64 * args.num_envs
-    manual_action_value = 2.0 
+    manual_action_value = 2
 
     for episode in range(num_episodes):
         state = env.reset()
         total_reward = torch.zeros(env.num_envs).to(args.device)
-        done_array = torch.tensor([False] * env.num_envs).to(args.device)
+        threshold = 1.0
+        # done_array = torch.tensor([False] * env.num_envs).to(args.device)
+        done_array = torch.zeros(env.num_envs, dtype=torch.bool, device=args.device)
         states, actions, rewards, dones = [], [], [], []
 
         for step in range(700):
@@ -62,12 +64,25 @@ def run(env, agent):
             if (step % 10 != 0):
                 action = agent.select_action(state)
             else:
-                action = torch.tensor([manual_action_value], device=args.device)
+                action = torch.full((env.num_envs,), manual_action_value, device=args.device)
 
+            # # Make sure this has shape [num_envs], e.g. tensor([0, 1, 2, 1])
+            # if action.dim() == 0:
+            #     action = action.unsqueeze(0)
+            # Save action
+            
+            # if not isinstance(action, torch.Tensor):
+            #     action = torch.tensor(action, device=env.device)
+
+            # if action.ndim == 0:  # scalar
+            #     action = action.unsqueeze(0)
+            # Save action
+            actions.append(action.clone().detach())
+            # Take step in environment
             next_state, reward, done = env.step(action)
 
             states.append(state)
-            actions.append(action)
+            # actions.append(action)
             rewards.append(reward)
             dones.append(done)
 
@@ -81,7 +96,10 @@ def run(env, agent):
         
         if episode % 10 == 0:
             agent.save_checkpoint()
-        print(f"Episode {episode}, Total Reward: {total_reward}")
+        print(f"Episode {episode}, Rewards per env: {total_reward.tolist()}")
+        success_rate = (total_reward > threshold).float().mean()
+        print(f"Success Rate: {success_rate.item()*100:.2f}%")
+
 
 def arg_parser():
     parser = argparse.ArgumentParser()
