@@ -437,13 +437,13 @@ class GraspRandomBlockCamEnv:
             #- (cube_x_diff/1000 + cube_y_diff/1000)  # Small continuous reward for getting closer to target values
             + corner_reward  # Reward for matching ideal corner positions
         )
-        print(f"lift reward: {lift_reward}")
-        # print(f"height penalty: {height_penalty}")
-        print(f"grasp reward: {grasp_reward}")
-        print(f"corner reward: {corner_reward_tensor}")
-        print(f"total reward: {rewards}")
-        print(f"pos: {pos}")
-        print(f"action: {actions}")
+        # print(f"lift reward: {lift_reward}")
+        # # print(f"height penalty: {height_penalty}")
+        # print(f"grasp reward: {grasp_reward}")
+        # print(f"corner reward: {corner_reward_tensor}")
+        # print(f"total reward: {rewards}")
+        # print(f"pos: {pos}")
+        # print(f"action: {actions}")
         
         dones = block_position[:, 2] > 0.35
         return states, rewards, dones, grasp_reward
