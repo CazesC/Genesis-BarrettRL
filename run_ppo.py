@@ -49,7 +49,7 @@ def train_ppo(args):
 def run(env, agent):
     num_episodes = 4000
     batch_size = args.batch_size if args.batch_size else 64 * args.num_envs
-    manual_action_value = 2
+    manual_action_value = 1
 
     for episode in range(num_episodes):
         state = env.reset()

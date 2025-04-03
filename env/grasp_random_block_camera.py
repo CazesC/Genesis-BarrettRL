@@ -9,7 +9,7 @@ from scipy.optimize import linear_sum_assignment
 class GraspRandomBlockCamEnv:
     def __init__(self, vis, device, num_envs=1):
         self.device = device
-        self.action_space = 5  
+        self.action_space = 3  
         self.state_dim = 6  
 
         np.set_printoptions(threshold=np.inf)
@@ -209,21 +209,21 @@ class GraspRandomBlockCamEnv:
         return state
 
     def step(self, actions):
-        action_mask_0 = actions == 0 # Open gripper
-        action_mask_1 = actions == 1 # Close gripper
-        action_mask_2 = actions == 2 # Lift gripper
-        action_mask_3 = actions == 3 # Lower gripper
-        action_mask_4 = actions == 4 # Do Nothing
+        #action_mask_0 = actions == 0 # Open gripper
+        action_mask_1 = actions == 0 # Close gripper
+        action_mask_2 = actions == 1 # Lift gripper
+        action_mask_3 = actions == 2 # Lower gripper
+        #action_mask_4 = actions == 4 # Do Nothing
         # action_mask_4 = actions == 4 # Move left
         # action_mask_5 = actions == 5 # Move right
         # action_mask_6 = actions == 6 # Move forward
         # action_mask_7 = actions == 7 # Move backward
 
 
-        idxs_0 = torch.nonzero(action_mask_0).squeeze(-1)
+        #idxs_0 = torch.nonzero(action_mask_0).squeeze(-1)
         idxs_1 = torch.nonzero(action_mask_1).squeeze(-1)
 
-        self.finger_pos[idxs_0, :] = 0
+        #self.finger_pos[idxs_0, :] = 0
         self.finger_pos[idxs_1, :] = 1.62
 
 
@@ -437,13 +437,13 @@ class GraspRandomBlockCamEnv:
             #- (cube_x_diff/1000 + cube_y_diff/1000)  # Small continuous reward for getting closer to target values
             + corner_reward  # Reward for matching ideal corner positions
         )
-        # print(f"lift reward: {lift_reward}")
-        # # print(f"height penalty: {height_penalty}")
-        # print(f"grasp reward: {grasp_reward}")
-        # print(f"corner reward: {corner_reward_tensor}")
-        # print(f"total reward: {rewards}")
-        # print(f"pos: {pos}")
-        # print(f"action: {actions}")
+        print(f"lift reward: {lift_reward}")
+        # print(f"height penalty: {height_penalty}")
+        print(f"grasp reward: {grasp_reward}")
+        print(f"corner reward: {corner_reward_tensor}")
+        print(f"total reward: {rewards}")
+        print(f"pos: {pos}")
+        print(f"action: {actions}")
         
         dones = block_position[:, 2] > 0.35
         return states, rewards, dones, grasp_reward
