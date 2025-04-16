@@ -4,6 +4,8 @@ import torch
 from algo.ppo_agent import PPOAgent
 from env import *
 import os
+import matplotlib.pyplot as plt
+
 
 gs.init(backend=gs.gpu, precision="32")
 
@@ -54,7 +56,7 @@ def run(env, agent):
     for episode in range(num_episodes):
         state = env.reset()
         total_reward = torch.zeros(env.num_envs).to(args.device)
-        threshold = 1.0
+        # threshold = 1.0
         # done_array = torch.tensor([False] * env.num_envs).to(args.device)
         done_array = torch.zeros(env.num_envs, dtype=torch.bool, device=args.device)
         states, actions, rewards, dones = [], [], [], []
@@ -101,12 +103,76 @@ def run(env, agent):
 
         agent.train(states, actions, rewards, dones)
         
+        if agent.logged_ratios and agent.logged_advantages:  # make sure it's not empty
+            ratios = torch.cat(agent.logged_ratios)
+            advantages = torch.cat(agent.logged_advantages)
+            epsilon = agent.clip_epsilon
+
+            unclipped = ratios * advantages
+            clipped = torch.clamp(ratios, 1 - epsilon, 1 + epsilon) * advantages
+
+            agent.unclipped_log.append(unclipped.mean().item())
+            agent.clipped_log.append(clipped.mean().item())
+
+
+            if episode % 3 == 0 and agent.logged_ratios and agent.logged_advantages:
+                # Save scatter plot
+                plt.figure(figsize=(10, 6))
+                plt.scatter(ratios.numpy(), unclipped.numpy(), label='Unclipped', alpha=0.5, marker='.')
+                plt.scatter(ratios.numpy(), clipped.numpy(), label='Clipped', alpha=0.5, marker='.')
+                plt.axvline(1 - epsilon, color='gray', linestyle='--', label='Clip Range')
+                plt.axvline(1 + epsilon, color='gray', linestyle='--')
+                plt.xlabel("Probability Ratio (r)")
+                plt.ylabel("Surrogate Objective (r * A)")
+                plt.title(f"PPO Clipped Objective - Episode {episode}")
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+
+                r_min = ratios.min().item()
+                r_max = ratios.max().item()
+                plt.xlim(r_min - 0.01, r_max + 0.01)
+
+                plt.savefig(f"logs/ppo_objective_ep{episode}.png")
+                print("r range:", ratios.min().item(), "to", ratios.max().item())
+
+                plt.close()
+
+                # Loss curve
+                if agent.loss_log:
+                    plt.figure(figsize=(10, 4))
+                    plt.plot(agent.loss_log, label="PPO Loss")
+                    plt.xlabel("Update Step")
+                    plt.ylabel("Loss")
+                    plt.title("PPO Policy Loss Over Time")
+                    plt.grid(True)
+                    plt.legend()
+                    plt.tight_layout()
+                    plt.savefig(f"logs/ppo_loss_curve_ep{episode}.png")
+                    plt.close()
+
+                # Clipped vs Unclipped over time
+                plt.plot(agent.unclipped_log, label="Unclipped Objective")
+                plt.plot(agent.clipped_log, label="Clipped Objective")
+                plt.xlabel("Update Step")
+                plt.ylabel("Objective Value")
+                plt.title("Clipped vs Unclipped Surrogate Objective")
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+                plt.savefig(f"logs/ppo_clip_vs_unclip_ep{episode}.png")
+                plt.close()
+
         if episode % 10 == 0:
             agent.save_checkpoint()
         print(f"Episode {episode}, Rewards per env: {total_reward.tolist()}")
-        success_rate = (total_reward > threshold).float().mean()
-        print(f"Success Rate: {success_rate.item()*100:.2f}%")
+        # success_rate = (total_reward > threshold).float().mean()
+        # print(f"Success Rate: {success_rate.item()*100:.2f}%")
 
+
+
+        agent.logged_ratios.clear()
+        agent.logged_advantages.clear()
 
 def arg_parser():
     parser = argparse.ArgumentParser()

@@ -22,6 +22,14 @@ class PPOAgent:
         self.exploration_decay = 0.995  # Decay rate for exploration
         self.min_exploration = 0.05  # Minimum exploration rate
 
+        self.logged_ratios = []
+        self.logged_advantages = []
+        self.loss_log = []
+
+        self.unclipped_log = []
+        self.clipped_log = []
+
+
     def save_checkpoint(self):
         checkpoint = {
             'model_state_dict': self.model.state_dict()
@@ -91,6 +99,10 @@ class PPOAgent:
             
             
 
+            # Log for visualization (detach to prevent gradient issues)
+            self.logged_ratios.append(ratio.detach().cpu())
+            self.logged_advantages.append(advantages.detach().cpu())
+
             # Calculate surrogate loss
             surrogate_loss_1 = ratio * advantages
             surrogate_loss_2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages
@@ -106,3 +118,6 @@ class PPOAgent:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+
+            self.loss_log.append(loss.item())
+            print(f"loss: {loss}")
