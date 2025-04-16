@@ -80,6 +80,7 @@ class GraspRandomBlockCamEnv:
             )
             self.cameras.append(cam)
             self.cam_transforms.append(self.cam_0_transform.copy())
+            
 
     def update_camera_poses(self):
         for i in range(self.num_envs):
@@ -412,7 +413,7 @@ class GraspRandomBlockCamEnv:
         # height_penalty[mask] = gripper_position[mask, 2] * (-30) + -5.0
         
         min_lift_height = 0.02  # 2 cm
-        lift_reward = torch.maximum(torch.full_like(block_position[:, 2], min_lift_height), block_position[:, 2]) * 100 - 2.779
+        lift_reward = torch.maximum(torch.full_like(block_position[:, 2], min_lift_height), block_position[:, 2]) * 1000 - 27.79
 
 
         # print("lift_reward:", block_position[:, 2].shape)
@@ -437,13 +438,13 @@ class GraspRandomBlockCamEnv:
             #- (cube_x_diff/1000 + cube_y_diff/1000)  # Small continuous reward for getting closer to target values
             + corner_reward  # Reward for matching ideal corner positions
         )
-        print(f"lift reward: {lift_reward}")
-        # print(f"height penalty: {height_penalty}")
-        print(f"grasp reward: {grasp_reward}")
-        print(f"corner reward: {corner_reward_tensor}")
-        print(f"total reward: {rewards}")
-        print(f"pos: {pos}")
-        print(f"action: {actions}")
+        # print(f"lift reward: {lift_reward}")
+        # # print(f"height penalty: {height_penalty}")
+        # print(f"grasp reward: {grasp_reward}")
+        # print(f"corner reward: {corner_reward_tensor}")
+        # print(f"total reward: {rewards}")
+        # print(f"pos: {pos}")
+        # print(f"action: {actions}")
         
         dones = block_position[:, 2] > 0.35
         return states, rewards, dones, grasp_reward

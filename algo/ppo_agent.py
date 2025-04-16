@@ -67,20 +67,29 @@ class PPOAgent:
 
         # Normalize the rewards
         advantages = discounted_rewards_tensor - discounted_rewards_tensor.mean()
+
+        # Compute "old policy" distribution ONCE, before the PPO update loop
+        with torch.no_grad():
+            logits_old = self.model(states_tensor)
+            probs_old = nn.functional.softmax(logits_old, dim=-1)
+            dist_old = Categorical(probs_old)
+
         
         # Update policy using PPO
         for _ in range(10):  # Number of epochs for each batch update
-            logits_old = self.model(states_tensor).detach()
-            probs_old = nn.functional.softmax(logits_old, dim=-1)
             
             logits_new = self.model(states_tensor)
             probs_new = nn.functional.softmax(logits_new, dim=-1)
 
-            dist_old = Categorical(probs_old)
+            
             dist_new = Categorical(probs_new)
 
             ratio = dist_new.log_prob(actions_tensor) - dist_old.log_prob(actions_tensor)
             ratio = ratio.exp()
+            print(torch.allclose(logits_old, logits_new, atol=1e-5))
+
+            
+            
 
             # Calculate surrogate loss
             surrogate_loss_1 = ratio * advantages
@@ -91,6 +100,7 @@ class PPOAgent:
             
             # Combined loss with entropy regularization
             loss = -torch.min(surrogate_loss_1, surrogate_loss_2).mean() - self.entropy_coef * entropy
+            print(loss)
 
             # Perform optimization step
             self.optimizer.zero_grad()
